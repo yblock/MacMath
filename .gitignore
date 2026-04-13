@@ -1,0 +1,25 @@
+node_modules/
+dist/
+out/
+build/icon.iconset/
+*.tgz
+
+.env
+.env.*
+
+npm-debug.log*
+*.log
+
+.DS_Store
+Thumbs.db
+
+# Claude / dev files (keep locally, exclude from repo)
+.claude/
+.memsearch/
+.remember/
+CLAUDE.md
+/docs/
+.gitattributes
+
+# Old dev subdirectory
+/mathlive-electron/

@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MacMath</title>
+  <link
+    rel="stylesheet"
+    href="../node_modules/mathlive/dist/mathlive-fonts.css"
+  />
+  <style>
+    :root {
+      --bg: #f5f5f7;
+      --text: #1d1d1f;
+      --text-secondary: #6e6e73;
+      --text-tertiary: #86868b;
+      --text-placeholder: #c7c7cc;
+      --surface: #fff;
+      --border: #d2d2d7;
+      --accent: #007aff;
+      --accent-hover: #0066d6;
+      --accent-active: #0055b3;
+      --btn-secondary: #e8e8ed;
+      --btn-secondary-hover: #dddde1;
+      --btn-secondary-active: #d2d2d7;
+      --btn-disabled: #c7c7cc;
+      --success: #34c759;
+      --code-text: #424245;
+      --caret: #007aff;
+      --selection: rgba(0, 122, 255, 0.15);
+      color-scheme: light;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #1c1c1e;
+        --text: #f5f5f7;
+        --text-secondary: #98989d;
+        --text-tertiary: #98989d;
+        --text-placeholder: #636366;
+        --surface: #2c2c2e;
+        --border: #38383a;
+        --accent: #0a84ff;
+        --accent-hover: #409cff;
+        --accent-active: #0066d6;
+        --btn-secondary: #3a3a3c;
+        --btn-secondary-hover: #48484a;
+        --btn-secondary-active: #545456;
+        --btn-disabled: #48484a;
+        --success: #30d158;
+        --code-text: #d1d1d6;
+        --caret: #0a84ff;
+        --selection: rgba(10, 132, 255, 0.25);
+        color-scheme: dark;
+      }
+    }
+
+    [data-theme="dark"] {
+      --bg: #1c1c1e;
+      --text: #f5f5f7;
+      --text-secondary: #98989d;
+      --text-tertiary: #98989d;
+      --text-placeholder: #636366;
+      --surface: #2c2c2e;
+      --border: #38383a;
+      --accent: #0a84ff;
+      --accent-hover: #409cff;
+      --accent-active: #0066d6;
+      --btn-secondary: #3a3a3c;
+      --btn-secondary-hover: #48484a;
+      --btn-secondary-active: #545456;
+      --btn-disabled: #48484a;
+      --success: #30d158;
+      --code-text: #d1d1d6;
+      --caret: #0a84ff;
+      --selection: rgba(10, 132, 255, 0.25);
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 16px;
+      -webkit-user-select: none;
+      user-select: none;
+      --keycap-height: 38px;
+      --keycap-font-size: 16px;
+      --keycap-shift-font-size: 9px;
+      --keycap-small-font-size: 9px;
+      --keycap-extra-small-font-size: 9px;
+      --keyboard-toolbar-font-size: 16px;
+      --keycap-gap: 2px;
+    }
+
+    .title-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      -webkit-app-region: drag;
+    }
+
+    .title-bar h1 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      letter-spacing: 0.02em;
+      flex: 1;
+    }
+
+    .title-action {
+      font-size: 12px;
+      color: var(--accent);
+      cursor: pointer;
+      -webkit-app-region: no-drag;
+    }
+
+    .title-action:hover {
+      text-decoration: underline;
+    }
+
+    .theme-toggle {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 2px solid var(--text-secondary);
+      cursor: pointer;
+      -webkit-app-region: no-drag;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .theme-toggle::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 50%;
+      height: 100%;
+      background: var(--text-secondary);
+      transition: background 0.2s;
+    }
+
+    .theme-toggle:hover {
+      border-color: var(--accent);
+    }
+
+    .theme-toggle:hover::after {
+      background: var(--accent);
+    }
+
+    .import-section {
+      display: none;
+      margin-bottom: 12px;
+    }
+
+    .import-section.open {
+      display: block;
+    }
+
+    .import-section textarea {
+      width: 100%;
+      height: 60px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px;
+      font-family: "SF Mono", SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      resize: none;
+      outline: none;
+      background: var(--surface);
+      color: var(--text);
+      -webkit-user-select: text;
+      user-select: text;
+    }
+
+    .import-section textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .import-section textarea::placeholder {
+      color: var(--text-placeholder);
+    }
+
+    .import-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .import-hint {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      flex: 1;
+    }
+
+    .import-btn {
+      padding: 4px 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+      font-family: inherit;
+    }
+
+    .import-btn:hover {
+      background: var(--accent-hover);
+    }
+
+    .import-btn:disabled {
+      background: var(--btn-disabled);
+      cursor: default;
+    }
+
+    .editor-container {
+      background: var(--surface);
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 12px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .editor-toolbar {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 4px;
+    }
+
+    .text-toggle {
+      padding: 2px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .text-toggle:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .text-toggle.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    math-field {
+      display: block;
+      width: 100%;
+      min-height: 80px;
+      font-size: 22px;
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--text);
+      overflow-y: auto;
+      -webkit-user-select: text;
+      user-select: text;
+      cursor: text;
+      --caret-color: var(--caret);
+      --selection-background-color: var(--selection);
+      --selection-color: #fff;
+      --contains-highlight-background-color: transparent;
+    }
+
+    #keyboardContainer {
+      margin-top: 8px;
+      border-radius: 8px;
+    }
+
+    #keyboardContainer .ML__keyboard {
+      height: auto !important;
+      overflow: visible !important;
+      padding-bottom: 12px;
+    }
+
+    #keyboardContainer .ML__keyboard > div {
+      position: relative !important;
+    }
+
+    /* Scale down math content in small keycaps to prevent overflow */
+    #keyboardContainer .MLK__keycap.small {
+      font-size: 12px;
+    }
+
+    #keyboardContainer .MLK__keycap.small .ML__math-mode {
+      transform: scale(0.7);
+      transform-origin: center;
+    }
+
+    .history-section {
+      margin-top: 12px;
+      display: none;
+    }
+
+    .history-section.has-items {
+      display: block;
+    }
+
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+
+    .history-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-family: "SF Mono", SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      color: var(--code-text);
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: background 0.1s;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .history-item:hover {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .output-section {
+      margin-top: 12px;
+    }
+
+    .output-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+
+    .output-preview {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-family: "SF Mono", SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      color: var(--code-text);
+      line-height: 1.4;
+      min-height: 36px;
+      max-height: 60px;
+      overflow-y: auto;
+      word-break: break-all;
+      -webkit-user-select: text;
+      user-select: text;
+    }
+
+    .output-preview:empty::after {
+      content: "Type an expression above\2026";
+      color: var(--text-placeholder);
+    }
+
+    .button-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .copy-btn {
+      flex: 1;
+      padding: 10px 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+
+    .copy-btn.latex {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .copy-btn.latex:hover {
+      background: var(--accent-hover);
+    }
+
+    .copy-btn.latex:active {
+      background: var(--accent-active);
+      transform: scale(0.98);
+    }
+
+    .copy-btn.mathml {
+      background: var(--btn-secondary);
+      color: var(--text);
+    }
+
+    .copy-btn.mathml:hover {
+      background: var(--btn-secondary-hover);
+    }
+
+    .copy-btn.mathml:active {
+      background: var(--btn-secondary-active);
+      transform: scale(0.98);
+    }
+
+    .copy-btn.copied {
+      background: var(--success) !important;
+      color: #fff !important;
+    }
+
+    .shortcut {
+      font-size: 10px;
+      opacity: 0.6;
+      margin-left: 4px;
+    }
+
+    .namespace-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .namespace-label {
+      font-size: 11px;
+      color: var(--text-tertiary);
+    }
+
+    .namespace-input {
+      width: 60px;
+      padding: 3px 6px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-family: "SF Mono", SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      outline: none;
+      background: var(--surface);
+      color: var(--code-text);
+      -webkit-user-select: text;
+      user-select: text;
+    }
+
+    .namespace-input:focus {
+      border-color: var(--accent);
+    }
+
+    .namespace-input::placeholder {
+      color: var(--text-placeholder);
+    }
+
+    .namespace-example {
+      font-size: 10px;
+      color: var(--text-placeholder);
+      font-family: "SF Mono", SFMono-Regular, Menlo, monospace;
+    }
+
+    /* Fix swatch color picker hover — remove square background, use round outline */
+    .MLK__variant-panel .item.swatch-button {
+      background: transparent !important;
+      border-radius: 50%;
+    }
+
+    .MLK__variant-panel .item.swatch-button:hover {
+      background: transparent !important;
+      outline: 2px solid var(--accent, #007aff);
+      outline-offset: -2px;
+      border-radius: 50%;
+    }
+
+    /* MathLive keyboard theme overrides */
+    .ML__keyboard {
+      --keyboard-background: #d0d0d5;
+      --keycap-background: #f5f5f7;
+      --keycap-background-hover: #e8e8ed;
+      --keycap-background-active: #d2d2d7;
+      --keycap-text: #1d1d1f;
+      --keycap-secondary-text: #6e6e73;
+      --keycap-border: #c7c7cc;
+      --keyboard-toolbar-text: #1d1d1f;
+      background: var(--keyboard-background) !important;
+      border-radius: 8px;
+    }
+
+    [data-theme="light"] .ML__keyboard {
+      --keyboard-background: #d0d0d5;
+      --keycap-background: #f5f5f7;
+      --keycap-background-hover: #e8e8ed;
+      --keycap-background-active: #d2d2d7;
+      --keycap-text: #1d1d1f;
+      --keycap-secondary-text: #6e6e73;
+      --keycap-border: #c7c7cc;
+      --keyboard-toolbar-text: #1d1d1f;
+    }
+
+    [data-theme="dark"] .ML__keyboard {
+      --keyboard-background: #1c1c1e;
+      --keycap-background: #3a3a3c;
+      --keycap-background-hover: #48484a;
+      --keycap-background-active: #545456;
+      --keycap-text: #f5f5f7;
+      --keycap-secondary-text: #98989d;
+      --keycap-border: #48484a;
+      --keyboard-toolbar-text: #f5f5f7;
+      --variant-panel-background: #2c2c2e;
+      --variant-keycap-background-active: #545456;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) .ML__keyboard {
+        --keyboard-background: #1c1c1e;
+        --keycap-background: #3a3a3c;
+        --keycap-background-hover: #48484a;
+        --keycap-background-active: #545456;
+        --keycap-text: #f5f5f7;
+        --keycap-secondary-text: #98989d;
+        --keycap-border: #48484a;
+        --variant-panel-background: #2c2c2e;
+        --variant-keycap-background-active: #545456;
+        --keyboard-toolbar-text: #f5f5f7;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="title-bar">
+    <h1>MacMath</h1>
+    <span class="title-action" id="importToggle">Import</span>
+    <div class="theme-toggle" id="themeToggle" title="Toggle light/dark mode"></div>
+  </div>
+
+  <div class="import-section" id="importSection">
+    <textarea id="importInput" placeholder="Paste LaTeX or MathML here..."></textarea>
+    <div class="import-row">
+      <span class="import-hint" id="importHint">Auto-detects format</span>
+      <button class="import-btn" id="importBtn" disabled>Load</button>
+    </div>
+  </div>
+
+  <div class="editor-container">
+    <math-field id="mathfield"></math-field>
+    <div class="editor-toolbar">
+      <button class="text-toggle" id="textToggle" title="Toggle text mode or wrap selection in \\text{}">Aa</button>
+    </div>
+  </div>
+
+  <div id="keyboardContainer"></div>
+
+  <div class="history-section" id="historySection">
+    <div class="output-label">
+      History
+      <span class="title-action" id="clearHistory" style="float: right; font-size: 10px;">Clear</span>
+    </div>
+    <div class="history-list" id="historyList"></div>
+  </div>
+
+  <div class="output-section">
+    <div class="output-label">LaTeX</div>
+    <div class="output-preview" id="latexPreview"></div>
+  </div>
+
+  <div class="button-row">
+    <button class="copy-btn latex" id="copyLaTeXBtn">Copy LaTeX <span class="shortcut">&#8984;&#9166;</span></button>
+    <button class="copy-btn mathml" id="copyMathMLBtn">Copy MathML <span class="shortcut">&#8984;&#8679;&#9166;</span></button>
+  </div>
+
+  <div class="namespace-row">
+    <span class="namespace-label">MathML prefix:</span>
+    <input class="namespace-input" id="nsPrefix" type="text" placeholder="none" />
+    <span class="namespace-example" id="nsExample">&lt;math&gt;</span>
+  </div>
+
+  <script src="../node_modules/mathlive/dist/mathlive.min.js"></script>
+  <script src="./renderer.js"></script>
+</body>
+</html>

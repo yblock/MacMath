@@ -1,0 +1,28 @@
+afterPack: "./build/afterPack.js"
+appId: com.macmath.app
+productName: MacMath
+directories:
+  output: dist
+mac:
+  category: public.app-category.utilities
+  icon: build/icon.icns
+  identity: null
+  target:
+    - dmg
+    - zip
+dmg:
+  title: MacMath
+  iconSize: 80
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+files:
+  - "**/*"
+  - "!dist"
+  - "!build/icon.iconset"
+extraMetadata:
+  main: main.js

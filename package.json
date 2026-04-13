@@ -1,0 +1,20 @@
+{
+  "name": "macmath",
+  "version": "1.0.0",
+  "description": "macOS menu bar app for math expressions — copy as LaTeX or MathML",
+  "main": "main.js",
+  "author": "Colby",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --mac",
+    "build:dir": "electron-builder --mac --dir"
+  },
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "mathlive": "^0.103.0"
+  }
+}
