@@ -7,6 +7,8 @@ mac:
   category: public.app-category.utilities
   icon: build/icon.icns
   identity: null
+  extendInfo:
+    LSUIElement: true
   target:
     - dmg
     - zip

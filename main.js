@@ -1,6 +1,10 @@
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
 
+// Hide the dock icon before the app is ready so it never bounces or appears
+// in the Dock / recent apps. Must be called synchronously at startup.
+if (app.dock) app.dock.hide();
+
 let mainWindow = null;
 let tray = null;
 
@@ -115,7 +119,6 @@ ipcMain.on('resize-window', (event, width, height) => {
 app.whenReady().then(() => {
   createWindow();
   createTray();
-  app.dock.hide();
 
   const registered = globalShortcut.register('CommandOrControl+Shift+M', () => {
     toggleWindow();
