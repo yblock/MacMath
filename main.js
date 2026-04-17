@@ -1,8 +1,45 @@
 const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
 
+const isMac = process.platform === 'darwin';
+const workspaceVisibilityOptions = {
+  visibleOnFullScreen: true,
+  skipTransformProcessType: true
+};
+
+// In development builds there is no LSUIElement plist entry, so hide the Dock
+// icon at startup to keep the app behaving like a menu bar utility.
+if (isMac && app.dock) {
+  app.dock.hide();
+}
+
 let mainWindow = null;
 let tray = null;
+let resetWorkspaceVisibilityTimer = null;
+
+function clearWorkspaceVisibilityReset() {
+  if (resetWorkspaceVisibilityTimer) {
+    clearTimeout(resetWorkspaceVisibilityTimer);
+    resetWorkspaceVisibilityTimer = null;
+  }
+}
+
+function resetWorkspaceVisibility() {
+  clearWorkspaceVisibilityReset();
+  if (!isMac || !mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  mainWindow.setVisibleOnAllWorkspaces(false, workspaceVisibilityOptions);
+}
+
+function hideWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.hide();
+  resetWorkspaceVisibility();
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -24,7 +61,7 @@ function createWindow() {
   // Hide the window when it loses focus to behave like a popover
   mainWindow.on('blur', () => {
     if (!mainWindow.webContents.isDevToolsOpened()) {
-      mainWindow.hide();
+      hideWindow();
     }
   });
 }
@@ -66,7 +103,7 @@ function createTray() {
 
 function toggleWindow() {
   if (mainWindow.isVisible()) {
-    mainWindow.hide();
+    hideWindow();
   } else {
     showWindow();
   }
@@ -81,9 +118,28 @@ function showWindow() {
   const x = Math.round(trayBounds.x + (trayBounds.width / 2) - (windowBounds.width / 2));
   const y = Math.round(trayBounds.y + trayBounds.height);
 
+  clearWorkspaceVisibilityReset();
+  if (isMac) {
+    // Make the popover temporarily visible across Spaces so macOS attaches it
+    // to the currently active desktop instead of the desktop it last lived on.
+    mainWindow.setVisibleOnAllWorkspaces(true, workspaceVisibilityOptions);
+  }
+
   mainWindow.setPosition(x, y, false);
   mainWindow.show();
+  mainWindow.moveTop();
   mainWindow.focus();
+
+  if (isMac) {
+    resetWorkspaceVisibilityTimer = setTimeout(() => {
+      if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) {
+        resetWorkspaceVisibilityTimer = null;
+        return;
+      }
+      mainWindow.setVisibleOnAllWorkspaces(false, workspaceVisibilityOptions);
+      resetWorkspaceVisibilityTimer = null;
+    }, 250);
+  }
 }
 
 function buildTrayMenu() {
@@ -113,7 +169,6 @@ ipcMain.on('resize-window', (event, width, height) => {
 
 // App lifecycle
 app.whenReady().then(() => {
-  if (app.dock) app.dock.hide();
   createWindow();
   createTray();
 
@@ -136,4 +191,3 @@ app.on('will-quit', () => {
 app.on('window-all-closed', () => {
   // Do nothing so the tray icon can keep the app running
 });
-

@@ -42,6 +42,8 @@ if (!Element.prototype.attachShadow[MATHLIVE_ATTACH_SHADOW_PATCH]) {
 
 window.addEventListener('DOMContentLoaded', () => {
   const mathField = document.getElementById('mathfield');
+  const editorContainer = document.getElementById('editorContainer');
+  const editorResizeHandle = document.getElementById('editorResizeHandle');
   const latexPreview = document.getElementById('latexPreview');
   const copyLaTeXBtn = document.getElementById('copyLaTeXBtn');
   const copyMathMLBtn = document.getElementById('copyMathMLBtn');
@@ -52,14 +54,13 @@ window.addEventListener('DOMContentLoaded', () => {
   const importBtn = document.getElementById('importBtn');
   const nsPrefix = document.getElementById('nsPrefix');
   const nsExample = document.getElementById('nsExample');
+  const appBottomAnchor = document.querySelector('.namespace-row');
 
   customElements.whenDefined('math-field').then(() => {
     installMathLiveMenuSwatchFix(mathField.shadowRoot);
   });
 
-  mathField.setOptions({
-    mathVirtualKeyboardPolicy: 'manual'
-  });
+  mathField.mathVirtualKeyboardPolicy = 'manual';
 
   // --- Theme toggle ---
 
@@ -100,9 +101,85 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const BASE_WIDTH = 520;
   const BASE_HEIGHT = 380;
+  const DEFAULT_EDITOR_HEIGHT = 80;
+  const MIN_EDITOR_HEIGHT = DEFAULT_EDITOR_HEIGHT;
+  const MAX_EDITOR_HEIGHT = 280;
+  const EDITOR_HEIGHT_STORAGE_KEY = 'macmath.editorHeight';
   const kbContainer = document.getElementById('keyboardContainer');
+  let editorHeight = loadStoredEditorHeight();
+  let editorResizeState = null;
+
+  applyEditorHeight(editorHeight);
 
   mathVirtualKeyboard.container = kbContainer;
+
+  function loadStoredEditorHeight() {
+    const stored = Number.parseInt(localStorage.getItem(EDITOR_HEIGHT_STORAGE_KEY), 10);
+    if (Number.isNaN(stored)) return DEFAULT_EDITOR_HEIGHT;
+    return clampEditorHeight(stored);
+  }
+
+  function clampEditorHeight(height) {
+    return Math.max(MIN_EDITOR_HEIGHT, Math.min(MAX_EDITOR_HEIGHT, Math.round(height)));
+  }
+
+  function syncWindowSize() {
+    if (!window.electronAPI?.resizeWindow) return;
+
+    requestAnimationFrame(() => {
+      const paddingBottom = Number.parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+      const contentBottom = Math.ceil(appBottomAnchor.getBoundingClientRect().bottom + paddingBottom);
+      const newHeight = Math.max(BASE_HEIGHT, contentBottom);
+      window.electronAPI.resizeWindow(BASE_WIDTH, newHeight);
+    });
+  }
+
+  function applyEditorHeight(nextHeight) {
+    editorHeight = clampEditorHeight(nextHeight);
+    document.documentElement.style.setProperty('--editor-height', `${editorHeight}px`);
+    localStorage.setItem(EDITOR_HEIGHT_STORAGE_KEY, String(editorHeight));
+    syncWindowSize();
+  }
+
+  function stopEditorResize(pointerId) {
+    if (!editorResizeState) return;
+
+    if (pointerId !== undefined && editorResizeHandle.hasPointerCapture(pointerId)) {
+      editorResizeHandle.releasePointerCapture(pointerId);
+    }
+
+    editorResizeState = null;
+    editorContainer.classList.remove('resizing');
+  }
+
+  editorResizeHandle.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    editorResizeState = {
+      startY: event.clientY,
+      startHeight: editorHeight
+    };
+    editorContainer.classList.add('resizing');
+    editorResizeHandle.setPointerCapture(event.pointerId);
+  });
+
+  editorResizeHandle.addEventListener('pointermove', (event) => {
+    if (!editorResizeState) return;
+    const deltaY = event.clientY - editorResizeState.startY;
+    applyEditorHeight(editorResizeState.startHeight + deltaY);
+  });
+
+  editorResizeHandle.addEventListener('pointerup', (event) => {
+    stopEditorResize(event.pointerId);
+  });
+
+  editorResizeHandle.addEventListener('pointercancel', (event) => {
+    stopEditorResize(event.pointerId);
+  });
+
+  editorResizeHandle.addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    applyEditorHeight(DEFAULT_EDITOR_HEIGHT);
+  });
 
   mathField.addEventListener('focusin', () => mathVirtualKeyboard.show());
 
@@ -115,9 +192,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   mathVirtualKeyboard.addEventListener('geometrychange', () => {
-    const kbHeight = mathVirtualKeyboard.boundingRect.height;
-    const newHeight = BASE_HEIGHT + Math.round(kbHeight) + (kbHeight > 0 ? 24 : 0);
-    window.electronAPI.resizeWindow(BASE_WIDTH, newHeight);
+    syncWindowSize();
   });
 
   // --- Text mode toggle ---
@@ -150,9 +225,11 @@ window.addEventListener('DOMContentLoaded', () => {
   // --- Clipboard ---
 
   function copyToClipboard(text) {
-    return window.electronAPI.copyText(text).catch(() => {
-      return navigator.clipboard.writeText(text);
-    });
+    const electronCopy = window.electronAPI?.copyText
+      ? window.electronAPI.copyText(text)
+      : Promise.reject(new Error('Electron clipboard bridge unavailable'));
+
+    return electronCopy.catch(() => navigator.clipboard.writeText(text));
   }
 
   const copyBtnTimers = new Map();
@@ -214,6 +291,7 @@ window.addEventListener('DOMContentLoaded', () => {
     historyList.innerHTML = '';
     if (expressionHistory.length === 0) {
       historySection.classList.remove('has-items');
+      syncWindowSize();
       return;
     }
     historySection.classList.add('has-items');
@@ -230,6 +308,7 @@ window.addEventListener('DOMContentLoaded', () => {
       });
       historyList.appendChild(item);
     }
+    syncWindowSize();
   }
 
   clearHistoryBtn.addEventListener('mousedown', (e) => e.preventDefault());
@@ -292,6 +371,7 @@ window.addEventListener('DOMContentLoaded', () => {
   importToggle.addEventListener('click', () => {
     importSection.classList.toggle('open');
     importToggle.textContent = importSection.classList.contains('open') ? 'Close' : 'Import';
+    syncWindowSize();
   });
 
   function detectFormat(text) {
@@ -346,6 +426,7 @@ window.addEventListener('DOMContentLoaded', () => {
     importBtn.disabled = true;
     importSection.classList.remove('open');
     importToggle.textContent = 'Import';
+    syncWindowSize();
     mathField.focus();
   });
 
