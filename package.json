@@ -5,14 +5,17 @@
   "main": "main.js",
   "author": "Yblock",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --mac",
     "build:dir": "electron-builder --mac --dir"
   },
   "devDependencies": {
-    "electron": "^34.0.0",
-    "electron-builder": "^26.8.1"
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "mathlive": "^0.111.0"

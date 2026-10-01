@@ -38,8 +38,8 @@ You do **not** need an Apple Developer account for either of these local options
 
 You need:
 
-- A Mac
-- [Node.js](https://nodejs.org/) 18 or newer
+- A Mac running macOS 13 (Ventura) or later
+- [Node.js](https://nodejs.org/) 22.12 or newer (the LTS download from nodejs.org works)
 - The MacMath source code folder on your machine
 
 If you do not already have the project folder:
@@ -86,7 +86,7 @@ npm start
 
 What happens next:
 
-1. MacMath starts running.
+1. MacMath starts running. The first time, it also downloads Electron (about 100 MB), so give it a minute.
 2. Its icon appears in your menu bar.
 3. Click the menu bar icon to open the editor.
 
@@ -139,7 +139,7 @@ To get the latest version:
    npm install
    ```
 
-   **Do not skip this step.** Updates can change the packages MacMath depends on, and the editor won't load until they're installed.
+   **Do not skip this step.** Updates can change the packages MacMath depends on, and the editor won't load until they're installed. If `npm install` warns that your Node.js version is too old, install the current LTS from [nodejs.org](https://nodejs.org/) and run it again.
 4. Start MacMath again:
    - With `npm start`: quit the running copy first (right-click the menu bar icon, then **Quit MacMath**), then run `npm start`.
    - With the `.dmg`: run `npm run build` again, then drag the new **MacMath** into **Applications** and replace the old one.

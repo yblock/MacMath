@@ -13,6 +13,9 @@ if (isMac && app.dock) {
   app.dock.hide();
 }
 
+const DEFAULT_WIDTH = 520;
+const DEFAULT_HEIGHT = 380;
+
 let mainWindow = null;
 let tray = null;
 let resetWorkspaceVisibilityTimer = null;
@@ -39,7 +42,9 @@ function hideWindow() {
 
   mainWindow.hide();
   resetWorkspaceVisibility();
-  // The renderer restores the default editor size for the next opening
+  // Reopen at the default size, so it is positioned under the tray icon correctly.
+  // Set it here: a hidden renderer doesn't get animation frames to request it.
+  mainWindow.setSize(DEFAULT_WIDTH, DEFAULT_HEIGHT);
   mainWindow.webContents.send('popover-hidden');
 }
 
@@ -55,8 +60,8 @@ function getWindowLimits(bounds = mainWindow.getBounds()) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 520,
-    height: 380,
+    width: DEFAULT_WIDTH,
+    height: DEFAULT_HEIGHT,
     show: false,
     frame: false,
     resizable: false,

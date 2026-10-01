@@ -109,6 +109,7 @@ window.addEventListener('DOMContentLoaded', () => {
   let windowLimits = { maxWidth: Infinity, maxHeight: Infinity };
   let windowWidth = BASE_WIDTH;
   let editorHeight = DEFAULT_EDITOR_HEIGHT;
+  let appliedEditorHeight = null;
   let editorResizeState = null;
   // 'right' keeps the window's right edge in place while the left corner widens it
   let resizeAnchor = 'left';
@@ -119,6 +120,8 @@ window.addEventListener('DOMContentLoaded', () => {
   mathVirtualKeyboard.container = kbContainer;
 
   function setEditorHeight(height) {
+    if (height === appliedEditorHeight) return;
+    appliedEditorHeight = height;
     document.documentElement.style.setProperty('--editor-height', `${height}px`);
   }
 
@@ -130,13 +133,10 @@ window.addEventListener('DOMContentLoaded', () => {
   // Applies the editor height, shrinking it (never below the default) when the
   // app would otherwise run past the bottom of the screen. Returns the height used.
   function fitEditorHeight(height) {
-    let fitted = Math.max(DEFAULT_EDITOR_HEIGHT, Math.round(height));
+    // The content grows one-for-one with the editor, so one measurement is enough
+    const tallest = windowLimits.maxHeight - contentHeight() + appliedEditorHeight;
+    const fitted = Math.max(DEFAULT_EDITOR_HEIGHT, Math.min(Math.round(height), Math.floor(tallest)));
     setEditorHeight(fitted);
-    const overflow = contentHeight() - windowLimits.maxHeight;
-    if (overflow > 0) {
-      fitted = Math.max(DEFAULT_EDITOR_HEIGHT, fitted - overflow);
-      setEditorHeight(fitted);
-    }
     return fitted;
   }
 
@@ -154,6 +154,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function resetEditorSize() {
     windowWidth = BASE_WIDTH;
+    resizeAnchor = 'left';
     editorHeight = fitEditorHeight(DEFAULT_EDITOR_HEIGHT);
     syncWindowSize();
   }
