@@ -22,9 +22,12 @@ dmg:
       y: 220
       type: link
       path: /Applications
+# Only what the app runs; production dependencies (mathlive) are added automatically.
+# A catch-all pattern would also pack local, untracked folders into the app.
 files:
-  - "**/*"
-  - "!dist"
-  - "!build/icon.iconset"
+  - main.js
+  - package.json
+  - "src/**/*"
+  - "!src/image.png"
 extraMetadata:
   main: main.js
