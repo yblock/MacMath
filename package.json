@@ -1,6 +1,6 @@
 {
   "name": "macmath",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "macOS menu bar app for math expressions — copy as LaTeX or MathML",
   "main": "main.js",
   "author": "Yblock",

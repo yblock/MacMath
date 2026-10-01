@@ -94,7 +94,7 @@ Important notes:
 
 - Leave the Terminal window open while MacMath is running.
 - To quit the app, right-click its menu bar icon and choose **Quit MacMath**, or press `Control + C` in Terminal.
-- If you update the project later, run `npm install` again before launching.
+- When you update MacMath, run `npm install` again before launching. See [Updating MacMath](#updating-macmath).
 
 ## Option 2: Build A Local DMG And Install It
 
@@ -120,12 +120,31 @@ When the build finishes:
 4. Drag **MacMath** into **Applications**.
 5. Open **Applications** and launch MacMath.
 
-If you ever want to rebuild it after updating the code, run `npm run build` again.
-
 ## Which Option Should You Pick?
 
 - Choose `npm start` if you want the fastest setup and are okay running it from Terminal.
 - Choose `npm run build` if you want a local `.dmg` and an app you can keep in Applications.
+
+## Updating MacMath
+
+To get the latest version:
+
+1. Get the newest code.
+   - If you downloaded a ZIP: download a fresh ZIP from GitHub and replace your old `MacMath` folder with the new one.
+   - If you cloned with git: run `git pull` in the project folder.
+2. Open the project folder in Terminal (see [Open The Project In Terminal](#open-the-project-in-terminal)).
+3. Install the updated packages:
+
+   ```sh
+   npm install
+   ```
+
+   **Do not skip this step.** Updates can change the packages MacMath depends on, and the editor won't load until they're installed.
+4. Start MacMath again:
+   - With `npm start`: quit the running copy first (right-click the menu bar icon, then **Quit MacMath**), then run `npm start`.
+   - With the `.dmg`: run `npm run build` again, then drag the new **MacMath** into **Applications** and replace the old one.
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 
 ## Usage
 
