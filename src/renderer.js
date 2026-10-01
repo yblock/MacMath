@@ -61,6 +61,25 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   mathField.mathVirtualKeyboardPolicy = 'manual';
+  mathField.keybindings = [
+    ...mathField.keybindings,
+    { key: 'cmd+b', command: ['applyStyle', { variantStyle: 'bold' }] }
+  ];
+
+  mathField.addEventListener('keydown', (event) => {
+    if (!event.metaKey || event.key.toLowerCase() !== 'u') return;
+
+    const selectedLatex = mathField.getValue(mathField.selection, 'latex');
+    if (!selectedLatex) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const underlined = selectedLatex.match(/^\\underline\{([\s\S]*)\}$/);
+    mathField.insert(underlined ? underlined[1] : `\\underline{${selectedLatex}}`, {
+      selectionMode: 'item'
+    });
+  }, true);
 
   // --- Theme toggle ---
 
