@@ -43,7 +43,6 @@ if (!Element.prototype.attachShadow[MATHLIVE_ATTACH_SHADOW_PATCH]) {
 window.addEventListener('DOMContentLoaded', () => {
   const mathField = document.getElementById('mathfield');
   const editorContainer = document.getElementById('editorContainer');
-  const editorResizeHandle = document.getElementById('editorResizeHandle');
   const latexPreview = document.getElementById('latexPreview');
   const copyLaTeXBtn = document.getElementById('copyLaTeXBtn');
   const copyMathMLBtn = document.getElementById('copyMathMLBtn');
@@ -61,6 +60,8 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   mathField.mathVirtualKeyboardPolicy = 'manual';
+  // Keep numbers as typed: MathLive would otherwise rewrite 3e2 as 3\times10^{2}.
+  MathfieldElement.scientificNotationTemplate = '';
 
   // --- Theme toggle ---
 
@@ -97,89 +98,117 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!themeOverride) applyTheme();
   });
 
-  // --- Virtual keyboard ---
+  // --- Virtual keyboard and window size ---
 
   const BASE_WIDTH = 520;
   const BASE_HEIGHT = 380;
   const DEFAULT_EDITOR_HEIGHT = 80;
-  const MIN_EDITOR_HEIGHT = DEFAULT_EDITOR_HEIGHT;
-  const MAX_EDITOR_HEIGHT = 280;
-  const EDITOR_HEIGHT_STORAGE_KEY = 'macmath.editorHeight';
   const kbContainer = document.getElementById('keyboardContainer');
-  let editorHeight = loadStoredEditorHeight();
+  const resizeHandles = editorContainer.querySelectorAll('[data-resize]');
+  // Largest window that stays on screen; sent by the main process when the popover opens
+  let windowLimits = { maxWidth: Infinity, maxHeight: Infinity };
+  let windowWidth = BASE_WIDTH;
+  let editorHeight = DEFAULT_EDITOR_HEIGHT;
   let editorResizeState = null;
+  // 'right' keeps the window's right edge in place while the left corner widens it
+  let resizeAnchor = 'left';
+  let syncFrame = 0;
 
-  applyEditorHeight(editorHeight);
+  setEditorHeight(editorHeight);
 
   mathVirtualKeyboard.container = kbContainer;
 
-  function loadStoredEditorHeight() {
-    const stored = Number.parseInt(localStorage.getItem(EDITOR_HEIGHT_STORAGE_KEY), 10);
-    if (Number.isNaN(stored)) return DEFAULT_EDITOR_HEIGHT;
-    return clampEditorHeight(stored);
+  function setEditorHeight(height) {
+    document.documentElement.style.setProperty('--editor-height', `${height}px`);
   }
 
-  function clampEditorHeight(height) {
-    return Math.max(MIN_EDITOR_HEIGHT, Math.min(MAX_EDITOR_HEIGHT, Math.round(height)));
+  function contentHeight() {
+    const paddingBottom = Number.parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+    return Math.ceil(appBottomAnchor.getBoundingClientRect().bottom + paddingBottom);
+  }
+
+  // Applies the editor height, shrinking it (never below the default) when the
+  // app would otherwise run past the bottom of the screen. Returns the height used.
+  function fitEditorHeight(height) {
+    let fitted = Math.max(DEFAULT_EDITOR_HEIGHT, Math.round(height));
+    setEditorHeight(fitted);
+    const overflow = contentHeight() - windowLimits.maxHeight;
+    if (overflow > 0) {
+      fitted = Math.max(DEFAULT_EDITOR_HEIGHT, fitted - overflow);
+      setEditorHeight(fitted);
+    }
+    return fitted;
   }
 
   function syncWindowSize() {
-    if (!window.electronAPI?.resizeWindow) return;
+    if (!window.electronAPI?.resizeWindow || syncFrame) return;
 
-    requestAnimationFrame(() => {
-      const paddingBottom = Number.parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
-      const contentBottom = Math.ceil(appBottomAnchor.getBoundingClientRect().bottom + paddingBottom);
-      const newHeight = Math.max(BASE_HEIGHT, contentBottom);
-      window.electronAPI.resizeWindow(BASE_WIDTH, newHeight);
+    syncFrame = requestAnimationFrame(() => {
+      syncFrame = 0;
+      fitEditorHeight(editorHeight);
+      const width = Math.min(windowWidth, windowLimits.maxWidth);
+      const height = Math.min(Math.max(BASE_HEIGHT, contentHeight()), windowLimits.maxHeight);
+      window.electronAPI.resizeWindow(width, height, resizeAnchor);
     });
   }
 
-  function applyEditorHeight(nextHeight) {
-    editorHeight = clampEditorHeight(nextHeight);
-    document.documentElement.style.setProperty('--editor-height', `${editorHeight}px`);
-    localStorage.setItem(EDITOR_HEIGHT_STORAGE_KEY, String(editorHeight));
+  function resetEditorSize() {
+    windowWidth = BASE_WIDTH;
+    editorHeight = fitEditorHeight(DEFAULT_EDITOR_HEIGHT);
     syncWindowSize();
   }
 
-  function stopEditorResize(pointerId) {
-    if (!editorResizeState) return;
+  // data-resize: 'height' (bottom handle), or 'left' / 'right' (bottom corners)
+  for (const handle of resizeHandles) {
+    handle.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      const mode = handle.dataset.resize;
+      resizeAnchor = mode === 'left' ? 'right' : 'left';
+      // Screen coordinates: the window itself moves while the left corner is dragged
+      editorResizeState = {
+        mode,
+        startX: event.screenX,
+        startY: event.screenY,
+        startWidth: windowWidth,
+        startHeight: editorHeight
+      };
+      editorContainer.classList.add('resizing');
+      handle.setPointerCapture(event.pointerId);
+    });
 
-    if (pointerId !== undefined && editorResizeHandle.hasPointerCapture(pointerId)) {
-      editorResizeHandle.releasePointerCapture(pointerId);
-    }
+    handle.addEventListener('pointermove', (event) => {
+      if (!editorResizeState) return;
+      const { mode, startX, startY, startWidth, startHeight } = editorResizeState;
+      if (mode !== 'height') {
+        const deltaX = (event.screenX - startX) * (mode === 'left' ? -1 : 1);
+        windowWidth = Math.max(BASE_WIDTH, Math.min(windowLimits.maxWidth, Math.round(startWidth + deltaX)));
+      }
+      editorHeight = fitEditorHeight(startHeight + event.screenY - startY);
+      syncWindowSize();
+    });
 
-    editorResizeState = null;
-    editorContainer.classList.remove('resizing');
+    const stopEditorResize = (event) => {
+      if (!editorResizeState) return;
+      if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+      editorResizeState = null;
+      editorContainer.classList.remove('resizing');
+    };
+    handle.addEventListener('pointerup', stopEditorResize);
+    handle.addEventListener('pointercancel', stopEditorResize);
+
+    handle.addEventListener('dblclick', (event) => {
+      event.preventDefault();
+      resetEditorSize();
+    });
   }
 
-  editorResizeHandle.addEventListener('pointerdown', (event) => {
-    event.preventDefault();
-    editorResizeState = {
-      startY: event.clientY,
-      startHeight: editorHeight
-    };
-    editorContainer.classList.add('resizing');
-    editorResizeHandle.setPointerCapture(event.pointerId);
+  // Each opening starts at the default size; the expression is kept
+  window.electronAPI?.onPopoverHidden?.(resetEditorSize);
+  window.electronAPI?.onPopoverShown?.((limits) => {
+    windowLimits = limits;
+    syncWindowSize();
   });
-
-  editorResizeHandle.addEventListener('pointermove', (event) => {
-    if (!editorResizeState) return;
-    const deltaY = event.clientY - editorResizeState.startY;
-    applyEditorHeight(editorResizeState.startHeight + deltaY);
-  });
-
-  editorResizeHandle.addEventListener('pointerup', (event) => {
-    stopEditorResize(event.pointerId);
-  });
-
-  editorResizeHandle.addEventListener('pointercancel', (event) => {
-    stopEditorResize(event.pointerId);
-  });
-
-  editorResizeHandle.addEventListener('dblclick', (event) => {
-    event.preventDefault();
-    applyEditorHeight(DEFAULT_EDITOR_HEIGHT);
-  });
+  window.addEventListener('resize', syncWindowSize);
 
   mathField.addEventListener('focusin', () => mathVirtualKeyboard.show());
 
@@ -256,6 +285,69 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // --- Keyboard shortcuts ---
 
+  // Cmd+Enter copies (below). MathLive also binds it to "add row", which would
+  // turn the expression into \displaylines{...} before it is copied.
+  mathField.keybindings = mathField.keybindings.filter(
+    (binding) => !/^cmd\+\[(Return|Enter)\]$/.test(binding.key)
+  );
+
+  // Cmd+B / Cmd+U: capture phase, so MathLive never sees a handled keystroke
+  mathField.addEventListener('keydown', (e) => {
+    if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    const key = e.key.toLowerCase();
+    const handled = key === 'b' ? toggleBold() : key === 'u' ? toggleUnderline() : false;
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+
+  function toggleBold() {
+    if (mathField.mode === 'latex') return false;
+    // Math bold is a variant style (\mathbf); text bold is a font series (\textbf)
+    const bold = mathField.mode === 'text' ? { fontSeries: 'b' } : { variantStyle: 'bold' };
+    if (mathField.selectionIsCollapsed && bold.variantStyle && mathField.queryStyle(bold) === 'all') {
+      // With no selection, applyStyle can turn variantStyle on but never off
+      mathField.executeCommand(['applyStyle', { variantStyle: '' }]);
+    } else {
+      mathField.executeCommand(['applyStyle', bold]);
+    }
+    return true;
+  }
+
+  function toggleUnderline() {
+    if (mathField.mode === 'latex' || mathField.selectionIsCollapsed) return false;
+    const selected = mathField.getValue(mathField.selection, 'latex');
+    if (!selected) return false;
+    // Insert as math LaTeX: in text mode a plain insert types the source literally
+    mathField.insert(underlineArgument(selected) ?? `\\underline{${selected}}`, {
+      format: 'latex',
+      mode: 'math',
+      selectionMode: 'item',
+    });
+    return true;
+  }
+
+  // '\underline{a}' → 'a', but '\underline{a}+\underline{b}' → null
+  function underlineArgument(latex) {
+    const command = '\\underline';
+    if (!latex.startsWith(`${command}{`)) return null;
+    const close = findClosingBrace(latex, command.length);
+    return close === latex.length - 1 ? latex.slice(command.length + 1, close) : null;
+  }
+
+  // Index of the } matching the { at openIndex, or -1. Skips escapes like \{ and \}.
+  function findClosingBrace(latex, openIndex) {
+    let depth = 0;
+    for (let i = openIndex; i < latex.length; i++) {
+      const ch = latex[i];
+      if (ch === '\\') i++;
+      else if (ch === '{') depth++;
+      else if (ch === '}' && --depth === 0) return i;
+    }
+    return -1;
+  }
+
   document.addEventListener('keydown', (e) => {
     // Don't trigger copy shortcuts when typing in text inputs
     const tag = e.target.tagName;
@@ -326,7 +418,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   copyMathMLBtn.addEventListener('click', () => {
-    const inner = mathField.getValue('math-ml');
+    const inner = getMathML();
     if (inner) {
       const latex = mathField.getValue('latex');
       addToHistory(latex);
@@ -335,6 +427,53 @@ window.addEventListener('DOMContentLoaded', () => {
       copyToClipboard(mathml).then(() => flashCopied(copyMathMLBtn));
     }
   });
+
+  // --- MathML export ---
+
+  // MathLive's MathML serializer silently drops \underline and \overline,
+  // contents included. Rewrite them as \underset/\overset with a marker script,
+  // then swap the marker for a stretchy line accent (the form KaTeX emits).
+  const LINE_ACCENTS = [
+    { command: '\\underline', standIn: '\\underset', element: 'munder', attribute: 'accentunder', marker: 'MacMathUnderline' },
+    { command: '\\overline', standIn: '\\overset', element: 'mover', attribute: 'accent', marker: 'MacMathOverline' },
+  ];
+
+  function getMathML() {
+    const latex = mathField.getValue('latex');
+    const accents = LINE_ACCENTS.filter(({ command }) => latex.includes(`${command}{`));
+    if (accents.length === 0) return mathField.getValue('math-ml');
+
+    let marked = latex;
+    for (const { command, standIn, marker } of accents) {
+      let start;
+      while ((start = marked.indexOf(`${command}{`)) !== -1) {
+        const open = start + command.length;
+        const close = findClosingBrace(marked, open);
+        if (close === -1) break;
+        // The extra braces stop MathLive from reading a leading \frac's
+        // numerator and denominator as the under/over scripts
+        marked = `${marked.slice(0, start)}${standIn}{\\text{${marker}}}{{${marked.slice(open + 1, close)}}}${marked.slice(close + 1)}`;
+      }
+    }
+
+    // MathLive emits HTML entities such as &nbsp;, so parse as HTML, not XML
+    const doc = new DOMParser().parseFromString(
+      `<math>${MathLive.convertLatexToMathMl(marked)}</math>`,
+      'text/html'
+    );
+    const math = doc.querySelector('math');
+    for (const { element, attribute, marker } of accents) {
+      for (const script of math.querySelectorAll(`${element} > mtext:last-child`)) {
+        if (script.textContent !== marker) continue;
+        const line = doc.createElementNS('http://www.w3.org/1998/Math/MathML', 'mo');
+        line.setAttribute('stretchy', 'true');
+        line.textContent = '\u203E';
+        script.parentElement.setAttribute(attribute, 'true');
+        script.replaceWith(line);
+      }
+    }
+    return math.innerHTML;
+  }
 
   // --- Namespace prefix ---
 
@@ -522,8 +661,14 @@ window.addEventListener('DOMContentLoaded', () => {
       case 'msubsup':
         return `${childAt(0)}_{${childAt(1)}}^{${childAt(2)}}`;
 
-      case 'munder':
-        return `\\underset{${childAt(1)}}{${childAt(0)}}`;
+      case 'munder': {
+        const base = childAt(0);
+        const underEl = Array.from(node.children)[1];
+        const underText = underEl ? underEl.textContent.trim() : '';
+        if (underText === '\u203E' || underText === '\u0332' || underText === '_')
+          return `\\underline{${base}}`;
+        return `\\underset{${childAt(1)}}{${base}}`;
+      }
 
       case 'mover': {
         const base = childAt(0);
@@ -531,7 +676,7 @@ window.addEventListener('DOMContentLoaded', () => {
         const overText = overEl ? overEl.textContent.trim() : '';
         if (overText === '\u0302' || overText === '^' || overText === '\u005E')
           return `\\hat{${base}}`;
-        if (overText === '\u0304' || overText === '\u00AF' || overText === '\u0305')
+        if (overText === '\u0304' || overText === '\u00AF' || overText === '\u0305' || overText === '\u203E')
           return `\\overline{${base}}`;
         if (overText === '\u2192' || overText === '\u20D7')
           return `\\vec{${base}}`;

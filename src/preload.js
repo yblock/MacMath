@@ -11,7 +11,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       }
     });
   },
-  resizeWindow(width, height) {
-    ipcRenderer.send('resize-window', width, height);
+  resizeWindow(width, height, anchor) {
+    ipcRenderer.send('resize-window', width, height, anchor);
+  },
+  onPopoverShown(callback) {
+    ipcRenderer.on('popover-shown', (event, limits) => callback(limits));
+  },
+  onPopoverHidden(callback) {
+    ipcRenderer.on('popover-hidden', () => callback());
   }
 });

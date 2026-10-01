@@ -9,11 +9,13 @@ A macOS menu bar utility for writing math and copying it as LaTeX or MathML.
 ## Features
 
 - **Visual math editor** with MathLive -- type or use the virtual keyboard
+- **Resizable editor** -- drag a bottom corner to make the editor wider and taller for large equations, up to the edges of your screen
 - **Copy as LaTeX or MathML** with one click or keyboard shortcut
 - **Import** LaTeX or MathML to edit visually -- auto-detects format and namespace prefixes
 - **MathML namespace prefix** -- set a custom prefix like `m:` or `mml:` for output
 - **Expression history** -- recent expressions saved for quick re-use
 - **Global shortcut** -- `Cmd+Shift+M` summons MacMath from any app
+- **Bold and underline** -- `Cmd+B` and `Cmd+U` toggle formatting, exported to both LaTeX and MathML
 - **Light and dark mode** -- follows system preference, with a manual toggle
 - **Launch at login** -- option in the tray menu
 - **Text mode** -- switch between math symbols and plain text input
@@ -134,6 +136,8 @@ If you ever want to rebuild it after updating the code, run `npm run build` agai
 
 To import an existing expression, click **Import** and paste LaTeX or MathML. The format is detected automatically, including namespace-prefixed MathML like `<m:math>`.
 
+Need more room? Drag either bottom corner of the editor to resize it in both directions, or the handle at the bottom center to change only its height. MacMath never grows past the edges of your screen; if the virtual keyboard needs the space, the editor shrinks to fit. Double-click a handle to go back to the default size. Each time you reopen MacMath it starts at the default size again, with your expression still there.
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -141,6 +145,8 @@ To import an existing expression, click **Import** and paste LaTeX or MathML. Th
 | `Cmd+Shift+M` | Toggle popover (works globally) |
 | `Cmd+Enter` | Copy LaTeX |
 | `Cmd+Shift+Enter` | Copy MathML |
+| `Cmd+B` | Toggle bold |
+| `Cmd+U` | Toggle underline on the selection |
 | `Cmd+Z` | Undo |
 
 ## Commands
