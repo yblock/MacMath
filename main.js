@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut, screen } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut, screen, clipboard } = require('electron');
 const path = require('path');
 
 const isMac = process.platform === 'darwin';
@@ -173,6 +173,8 @@ function buildTrayMenu() {
     }
   ]);
 }
+
+ipcMain.handle('copy-text', (event, text) => clipboard.writeText(String(text)));
 
 // anchor 'right' keeps the right edge in place (growing left); otherwise the left edge stays
 ipcMain.on('resize-window', (event, width, height, anchor) => {

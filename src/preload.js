@@ -1,15 +1,9 @@
-const { contextBridge, clipboard, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  // The clipboard module is not available in sandboxed renderers; main writes it
   copyText(text) {
-    return new Promise((resolve, reject) => {
-      try {
-        clipboard.writeText(text);
-        resolve();
-      } catch (err) {
-        reject(err);
-      }
-    });
+    return ipcRenderer.invoke('copy-text', text);
   },
   resizeWindow(width, height, anchor) {
     ipcRenderer.send('resize-window', width, height, anchor);
