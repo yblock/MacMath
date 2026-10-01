@@ -28,6 +28,7 @@ This version needs **macOS 13 (Ventura) or later** and **Node.js 22.12 or later*
 
 - `Cmd+Enter` turned the expression into `\displaylines{…}` with an empty line before copying it.
 - Overlined expressions (`\overline`) were missing from copied MathML.
+- Bold now survives in copied MathML. Bold digits, Greek letters and text (`\mathbf{2}`, `\boldsymbol{\alpha}`, `\textbf{…}`) used to come out plain.
 - Copied MathML is now valid XML. Symbols such as `≠` were written as HTML entities (`&ne;`), which break XML documents; they're now numeric references (`&#8800;`).
 - Copying no longer depends on the popover having keyboard focus.
 - Importing MathML:
@@ -35,6 +36,7 @@ This version needs **macOS 13 (Ventura) or later** and **Node.js 22.12 or later*
   - Invisible operators, such as the implied multiplication in `2x`, were kept as hidden characters in the LaTeX.
   - Function names such as `sin`, `log` and `lim` came in as separate italic letters, and limits as `\underset`.
   - Greek letters stayed as raw Unicode characters instead of `\alpha` and so on.
+  - Bold was lost. Bold from `mathvariant="bold"` (also on an enclosing `<mstyle>`), MathML 2's `fontweight="bold"`, or bold characters such as `𝐱` now comes back as `\mathbf`, `\boldsymbol` or `\textbf`.
   - MathML containing entities such as `&ne;` could not be imported.
 - `npm run build` packed everything in the project folder into the app, including local, untracked folders. The app's contents dropped from 665 MB to under 6 MB.
 

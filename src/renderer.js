@@ -431,13 +431,39 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // --- MathML export ---
 
-  // MathLive's MathML serializer silently drops \underline and \overline,
-  // contents included. Rewrite them as \underset/\overset with a marker script,
-  // then swap the marker for a stretchy line accent (the form KaTeX emits).
-  const LINE_ACCENTS = [
-    { command: '\\underline', standIn: '\\underset', element: 'munder', attribute: 'accentunder', marker: 'MacMathUnderline' },
-    { command: '\\overline', standIn: '\\overset', element: 'mover', attribute: 'accent', marker: 'MacMathOverline' },
+  // MathLive's MathML serializer drops some things: \underline and \overline
+  // along with their contents, and the bold of digits, Greek letters and text
+  // (\mathbf{2}, \boldsymbol{\alpha}, \textbf{hi}). Each of these commands is
+  // wrapped in \underset/\overset with a marker script, which MathLive does
+  // serialize, and the marker is then turned into the right MathML.
+  const MATHML_NS = 'http://www.w3.org/1998/Math/MathML';
+  const BOLD_MARKER = 'MacMathBold';
+  const LINE_MARKERS = new Set(['MacMathUnderline', 'MacMathOverline']);
+  const MARKED_COMMANDS = [
+    { command: '\\underline', standIn: '\\underset', marker: 'MacMathUnderline' },
+    { command: '\\overline', standIn: '\\overset', marker: 'MacMathOverline' },
+    // Bold commands stay inside the marker so MathLive still renders them
+    ...['\\mathbf', '\\boldsymbol', '\\bm', '\\textbf'].map((command) => (
+      { command, standIn: '\\underset', marker: BOLD_MARKER, keep: true }
+    )),
   ];
+
+  // Mathematical Alphanumeric Symbols used for bold, such as 𝐱, 𝛂 and 𝟐
+  const UNICODE_BOLD = [
+    [0x1D400, 0x1D433, 'bold'], // Latin
+    [0x1D468, 0x1D49B, 'bold-italic'],
+    [0x1D6A8, 0x1D6E1, 'bold'], // Greek
+    [0x1D71C, 0x1D755, 'bold-italic'],
+    [0x1D7CE, 0x1D7D7, 'bold'], // digits
+  ];
+
+  function unicodeBoldStyle(text) {
+    const styles = [...text].map((ch) => {
+      const code = ch.codePointAt(0);
+      return UNICODE_BOLD.find(([from, to]) => code >= from && code <= to)?.[2];
+    });
+    return styles.length > 0 && styles.every((style) => style && style === styles[0]) ? styles[0] : null;
+  }
 
   // XML only predefines &lt; &gt; &amp; &quot; &apos;. MathLive emits HTML
   // entities such as &ne; and &nbsp;, which make XML documents invalid, so
@@ -461,19 +487,24 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function serializeMathML() {
     const latex = mathField.getValue('latex');
-    const accents = LINE_ACCENTS.filter(({ command }) => latex.includes(`${command}{`));
-    if (accents.length === 0) return mathField.getValue('math-ml');
+    const commands = MARKED_COMMANDS.filter(({ command }) => latex.includes(`${command}{`));
+    if (commands.length === 0) return mathField.getValue('math-ml');
 
     let marked = latex;
-    for (const { command, standIn, marker } of accents) {
+    for (const { command, standIn, marker, keep } of commands) {
+      let from = 0;
       let start;
-      while ((start = marked.indexOf(`${command}{`)) !== -1) {
+      while ((start = marked.indexOf(`${command}{`, from)) !== -1) {
         const open = start + command.length;
         const close = findClosingBrace(marked, open);
         if (close === -1) break;
+        const body = keep ? marked.slice(start, close + 1) : marked.slice(open + 1, close);
         // The extra braces stop MathLive from reading a leading \frac's
         // numerator and denominator as the under/over scripts
-        marked = `${marked.slice(0, start)}${standIn}{\\text{${marker}}}{{${marked.slice(open + 1, close)}}}${marked.slice(close + 1)}`;
+        const prefix = `${standIn}{\\text{${marker}}}{{`;
+        marked = `${marked.slice(0, start)}${prefix}${body}}}${marked.slice(close + 1)}`;
+        // Keep scanning inside the argument, so nested commands are marked too
+        from = start + prefix.length + (keep ? command.length + 1 : 0);
       }
     }
 
@@ -483,17 +514,33 @@ window.addEventListener('DOMContentLoaded', () => {
       'text/html'
     );
     const math = doc.querySelector('math');
-    for (const { element, attribute, marker } of accents) {
-      for (const script of math.querySelectorAll(`${element} > mtext:last-child`)) {
-        if (script.textContent !== marker) continue;
-        const line = doc.createElementNS('http://www.w3.org/1998/Math/MathML', 'mo');
+    for (const script of math.querySelectorAll('munder > mtext:last-child, mover > mtext:last-child')) {
+      const wrapper = script.parentElement;
+      if (script.textContent === BOLD_MARKER) {
+        const base = wrapper.firstElementChild;
+        markBold(base);
+        wrapper.replaceWith(base);
+      } else if (LINE_MARKERS.has(script.textContent)) {
+        // A stretchy line accent, the form KaTeX emits
+        const line = doc.createElementNS(MATHML_NS, 'mo');
         line.setAttribute('stretchy', 'true');
         line.textContent = '\u203E';
-        script.parentElement.setAttribute(attribute, 'true');
+        wrapper.setAttribute(wrapper.localName === 'munder' ? 'accentunder' : 'accent', 'true');
         script.replaceWith(line);
       }
     }
     return math.innerHTML;
+  }
+
+  // Bold letters, digits and text (operators stay as they are, like in LaTeX).
+  // MathLive already writes \bm{x} as 𝐱, which needs no attribute.
+  function markBold(element) {
+    const tokens = element.matches('mi, mn, mtext') ? [element] : element.querySelectorAll('mi, mn, mtext');
+    for (const token of tokens) {
+      if (!token.hasAttribute('mathvariant') && !unicodeBoldStyle(token.textContent)) {
+        token.setAttribute('mathvariant', 'bold');
+      }
+    }
   }
 
   // --- Namespace prefix ---
@@ -650,18 +697,14 @@ window.addEventListener('DOMContentLoaded', () => {
         return childLatex();
 
       case 'mi':
-        return tokenToLatex(node.textContent.trim());
-
       case 'mn':
-        return node.textContent.trim();
-
-      case 'mo': {
-        const op = node.textContent.trim();
-        return tokenToLatex(op);
-      }
+      case 'mo':
+        return tokenElementToLatex(node);
 
       case 'mtext':
-        return `\\text{${node.textContent}}`;
+        return isBold(mathvariantOf(node))
+          ? `\\textbf{${node.textContent}}`
+          : `\\text{${node.textContent}}`;
 
       case 'mspace':
         return '\\;';
@@ -840,6 +883,31 @@ window.addEventListener('DOMContentLoaded', () => {
   function tokenToLatex(text) {
     const latex = FUNCTION_NAMES.has(text) ? `\\${text}` : MO_MAP[text] ?? text;
     return /\\[a-zA-Z]+$/.test(latex) ? `${latex} ` : latex;
+  }
+
+  // <mi>, <mn> or <mo> as LaTeX, keeping bold from mathvariant, fontweight or 𝐱-style characters
+  function tokenElementToLatex(node) {
+    let text = node.textContent.trim();
+    const unicodeBold = unicodeBoldStyle(text);
+    if (unicodeBold) text = text.normalize('NFKC'); // 𝐱 → x
+    const latex = node.localName === 'mn' ? text : tokenToLatex(text);
+    // Operators stay regular, as with \mathbf in LaTeX and on export
+    const variant = node.localName === 'mo' ? null : mathvariantOf(node) ?? unicodeBold;
+    if (!isBold(variant)) return latex;
+    // \mathbf covers Latin letters and digits; \boldsymbol also covers Greek and symbols
+    const command = variant === 'bold' && /^[A-Za-z0-9.,]+$/.test(text) ? '\\mathbf' : '\\boldsymbol';
+    return `${command}{${latex.trim()}}`;
+  }
+
+  // The token's own mathvariant or one inherited from an <mstyle>; MathML 2 used fontweight
+  function mathvariantOf(node) {
+    const variant = node.closest('[mathvariant]')?.getAttribute('mathvariant');
+    if (variant) return variant;
+    return node.closest('[fontweight]')?.getAttribute('fontweight') === 'bold' ? 'bold' : null;
+  }
+
+  function isBold(variant) {
+    return variant === 'bold' || variant === 'bold-italic';
   }
 
   // Focus on load
