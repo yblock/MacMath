@@ -93,7 +93,7 @@ What happens next:
 Important notes:
 
 - Leave the Terminal window open while MacMath is running.
-- To quit the app, close it from the menu bar or press `Control + C` in Terminal.
+- To quit the app, right-click its menu bar icon and choose **Quit MacMath**, or press `Control + C` in Terminal.
 - If you update the project later, run `npm install` again before launching.
 
 ## Option 2: Build A Local DMG And Install It
@@ -134,6 +134,8 @@ If you ever want to rebuild it after updating the code, run `npm run build` agai
 3. Press `Cmd+Enter` to copy LaTeX, or `Cmd+Shift+Enter` for MathML
 4. Paste into your document
 
+Right-click the menu bar icon for **Launch at Login** and **Quit MacMath**.
+
 To import an existing expression, click **Import** and paste LaTeX or MathML. The format is detected automatically, including namespace-prefixed MathML like `<m:math>`.
 
 Need more room? Drag either bottom corner of the editor to resize it in both directions, or the handle at the bottom center to change only its height. MacMath never grows past the edges of your screen; if the virtual keyboard needs the space, the editor shrinks to fit. Double-click a handle to go back to the default size. Each time you reopen MacMath it starts at the default size again, with your expression still there.
@@ -148,6 +150,7 @@ Need more room? Drag either bottom corner of the editor to resize it in both dir
 | `Cmd+B` | Toggle bold |
 | `Cmd+U` | Toggle underline on the selection |
 | `Cmd+Z` | Undo |
+| `Cmd+Shift+Z` | Redo |
 
 ## Commands
 
