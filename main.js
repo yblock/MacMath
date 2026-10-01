@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut, screen } = require('electron');
 const path = require('path');
 
 const isMac = process.platform === 'darwin';
@@ -39,6 +39,18 @@ function hideWindow() {
 
   mainWindow.hide();
   resetWorkspaceVisibility();
+  // The renderer restores the default editor size for the next opening
+  mainWindow.webContents.send('popover-hidden');
+}
+
+// Space the window can use without running off the screen, from its current top edge
+function getWindowLimits(bounds = mainWindow.getBounds()) {
+  const { workArea } = screen.getDisplayMatching(bounds);
+  return {
+    workArea,
+    maxWidth: workArea.width,
+    maxHeight: workArea.y + workArea.height - bounds.y
+  };
 }
 
 function createWindow() {
@@ -126,6 +138,7 @@ function showWindow() {
   }
 
   mainWindow.setPosition(x, y, false);
+  mainWindow.webContents.send('popover-shown', getWindowLimits());
   mainWindow.show();
   mainWindow.moveTop();
   mainWindow.focus();
@@ -161,10 +174,23 @@ function buildTrayMenu() {
   ]);
 }
 
-ipcMain.on('resize-window', (event, width, height) => {
-  if (mainWindow) {
-    mainWindow.setSize(width, height);
-  }
+// anchor 'right' keeps the right edge in place (growing left); otherwise the left edge stays
+ipcMain.on('resize-window', (event, width, height, anchor) => {
+  if (!mainWindow) return;
+
+  const bounds = mainWindow.getBounds();
+  const { workArea, maxWidth, maxHeight } = getWindowLimits(bounds);
+  const nextWidth = Math.min(width, maxWidth);
+  const nextHeight = Math.min(height, maxHeight);
+  const x = anchor === 'right' ? bounds.x + bounds.width - nextWidth : bounds.x;
+  const maxX = workArea.x + workArea.width - nextWidth;
+
+  mainWindow.setBounds({
+    x: Math.max(workArea.x, Math.min(x, maxX)),
+    y: bounds.y,
+    width: nextWidth,
+    height: nextHeight
+  });
 });
 
 // App lifecycle

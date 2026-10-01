@@ -9,6 +9,7 @@ A macOS menu bar utility for writing math and copying it as LaTeX or MathML.
 ## Features
 
 - **Visual math editor** with MathLive -- type or use the virtual keyboard
+- **Resizable editor** -- drag a bottom corner to make the editor wider and taller for large equations, up to the edges of your screen
 - **Copy as LaTeX or MathML** with one click or keyboard shortcut
 - **Import** LaTeX or MathML to edit visually -- auto-detects format and namespace prefixes
 - **MathML namespace prefix** -- set a custom prefix like `m:` or `mml:` for output
@@ -132,6 +133,8 @@ If you ever want to rebuild it after updating the code, run `npm run build` agai
 4. Paste into your document
 
 To import an existing expression, click **Import** and paste LaTeX or MathML. The format is detected automatically, including namespace-prefixed MathML like `<m:math>`.
+
+Need more room? Drag either bottom corner of the editor to resize it in both directions, or the handle at the bottom center to change only its height. MacMath never grows past the edges of your screen; if the virtual keyboard needs the space, the editor shrinks to fit. Double-click a handle to go back to the default size. Each time you reopen MacMath it starts at the default size again, with your expression still there.
 
 ## Keyboard Shortcuts
 

@@ -317,6 +317,53 @@
       transform: scaleX(1.08);
     }
 
+    .editor-corner-handle {
+      position: absolute;
+      bottom: 2px;
+      width: 18px;
+      height: 18px;
+      border: none;
+      background: transparent;
+      color: color-mix(in srgb, var(--text-tertiary) 60%, transparent);
+      touch-action: none;
+      -webkit-app-region: no-drag;
+    }
+
+    .editor-corner-handle.left {
+      left: 2px;
+      cursor: nesw-resize;
+    }
+
+    .editor-corner-handle.right {
+      right: 2px;
+      cursor: nwse-resize;
+    }
+
+    /* Two diagonal grip lines in the corner */
+    .editor-corner-handle::before {
+      content: '';
+      position: absolute;
+      inset: 3px;
+      background: linear-gradient(
+        135deg,
+        transparent 0 52%,
+        currentColor 52% 60%,
+        transparent 60% 74%,
+        currentColor 74% 82%,
+        transparent 82%
+      );
+      transition: color 0.15s ease;
+    }
+
+    .editor-corner-handle.left::before {
+      transform: scaleX(-1);
+    }
+
+    .editor-corner-handle:hover,
+    .editor-container.resizing .editor-corner-handle {
+      color: color-mix(in srgb, var(--accent) 70%, transparent);
+    }
+
     #keyboardContainer {
       margin-top: 8px;
       border-radius: 8px;
@@ -603,9 +650,23 @@
     </div>
     <button
       class="editor-resize-handle"
-      id="editorResizeHandle"
+      data-resize="height"
       type="button"
-      title="Drag to resize the editor"
+      title="Drag to resize the editor, double-click to reset"
+      aria-label="Drag to resize the editor"
+    ></button>
+    <button
+      class="editor-corner-handle left"
+      data-resize="left"
+      type="button"
+      title="Drag to resize the editor, double-click to reset"
+      aria-label="Drag to resize the editor"
+    ></button>
+    <button
+      class="editor-corner-handle right"
+      data-resize="right"
+      type="button"
+      title="Drag to resize the editor, double-click to reset"
       aria-label="Drag to resize the editor"
     ></button>
   </div>

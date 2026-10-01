@@ -43,7 +43,6 @@ if (!Element.prototype.attachShadow[MATHLIVE_ATTACH_SHADOW_PATCH]) {
 window.addEventListener('DOMContentLoaded', () => {
   const mathField = document.getElementById('mathfield');
   const editorContainer = document.getElementById('editorContainer');
-  const editorResizeHandle = document.getElementById('editorResizeHandle');
   const latexPreview = document.getElementById('latexPreview');
   const copyLaTeXBtn = document.getElementById('copyLaTeXBtn');
   const copyMathMLBtn = document.getElementById('copyMathMLBtn');
@@ -99,89 +98,117 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!themeOverride) applyTheme();
   });
 
-  // --- Virtual keyboard ---
+  // --- Virtual keyboard and window size ---
 
   const BASE_WIDTH = 520;
   const BASE_HEIGHT = 380;
   const DEFAULT_EDITOR_HEIGHT = 80;
-  const MIN_EDITOR_HEIGHT = DEFAULT_EDITOR_HEIGHT;
-  const MAX_EDITOR_HEIGHT = 280;
-  const EDITOR_HEIGHT_STORAGE_KEY = 'macmath.editorHeight';
   const kbContainer = document.getElementById('keyboardContainer');
-  let editorHeight = loadStoredEditorHeight();
+  const resizeHandles = editorContainer.querySelectorAll('[data-resize]');
+  // Largest window that stays on screen; sent by the main process when the popover opens
+  let windowLimits = { maxWidth: Infinity, maxHeight: Infinity };
+  let windowWidth = BASE_WIDTH;
+  let editorHeight = DEFAULT_EDITOR_HEIGHT;
   let editorResizeState = null;
+  // 'right' keeps the window's right edge in place while the left corner widens it
+  let resizeAnchor = 'left';
+  let syncFrame = 0;
 
-  applyEditorHeight(editorHeight);
+  setEditorHeight(editorHeight);
 
   mathVirtualKeyboard.container = kbContainer;
 
-  function loadStoredEditorHeight() {
-    const stored = Number.parseInt(localStorage.getItem(EDITOR_HEIGHT_STORAGE_KEY), 10);
-    if (Number.isNaN(stored)) return DEFAULT_EDITOR_HEIGHT;
-    return clampEditorHeight(stored);
+  function setEditorHeight(height) {
+    document.documentElement.style.setProperty('--editor-height', `${height}px`);
   }
 
-  function clampEditorHeight(height) {
-    return Math.max(MIN_EDITOR_HEIGHT, Math.min(MAX_EDITOR_HEIGHT, Math.round(height)));
+  function contentHeight() {
+    const paddingBottom = Number.parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+    return Math.ceil(appBottomAnchor.getBoundingClientRect().bottom + paddingBottom);
+  }
+
+  // Applies the editor height, shrinking it (never below the default) when the
+  // app would otherwise run past the bottom of the screen. Returns the height used.
+  function fitEditorHeight(height) {
+    let fitted = Math.max(DEFAULT_EDITOR_HEIGHT, Math.round(height));
+    setEditorHeight(fitted);
+    const overflow = contentHeight() - windowLimits.maxHeight;
+    if (overflow > 0) {
+      fitted = Math.max(DEFAULT_EDITOR_HEIGHT, fitted - overflow);
+      setEditorHeight(fitted);
+    }
+    return fitted;
   }
 
   function syncWindowSize() {
-    if (!window.electronAPI?.resizeWindow) return;
+    if (!window.electronAPI?.resizeWindow || syncFrame) return;
 
-    requestAnimationFrame(() => {
-      const paddingBottom = Number.parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
-      const contentBottom = Math.ceil(appBottomAnchor.getBoundingClientRect().bottom + paddingBottom);
-      const newHeight = Math.max(BASE_HEIGHT, contentBottom);
-      window.electronAPI.resizeWindow(BASE_WIDTH, newHeight);
+    syncFrame = requestAnimationFrame(() => {
+      syncFrame = 0;
+      fitEditorHeight(editorHeight);
+      const width = Math.min(windowWidth, windowLimits.maxWidth);
+      const height = Math.min(Math.max(BASE_HEIGHT, contentHeight()), windowLimits.maxHeight);
+      window.electronAPI.resizeWindow(width, height, resizeAnchor);
     });
   }
 
-  function applyEditorHeight(nextHeight) {
-    editorHeight = clampEditorHeight(nextHeight);
-    document.documentElement.style.setProperty('--editor-height', `${editorHeight}px`);
-    localStorage.setItem(EDITOR_HEIGHT_STORAGE_KEY, String(editorHeight));
+  function resetEditorSize() {
+    windowWidth = BASE_WIDTH;
+    editorHeight = fitEditorHeight(DEFAULT_EDITOR_HEIGHT);
     syncWindowSize();
   }
 
-  function stopEditorResize(pointerId) {
-    if (!editorResizeState) return;
+  // data-resize: 'height' (bottom handle), or 'left' / 'right' (bottom corners)
+  for (const handle of resizeHandles) {
+    handle.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      const mode = handle.dataset.resize;
+      resizeAnchor = mode === 'left' ? 'right' : 'left';
+      // Screen coordinates: the window itself moves while the left corner is dragged
+      editorResizeState = {
+        mode,
+        startX: event.screenX,
+        startY: event.screenY,
+        startWidth: windowWidth,
+        startHeight: editorHeight
+      };
+      editorContainer.classList.add('resizing');
+      handle.setPointerCapture(event.pointerId);
+    });
 
-    if (pointerId !== undefined && editorResizeHandle.hasPointerCapture(pointerId)) {
-      editorResizeHandle.releasePointerCapture(pointerId);
-    }
+    handle.addEventListener('pointermove', (event) => {
+      if (!editorResizeState) return;
+      const { mode, startX, startY, startWidth, startHeight } = editorResizeState;
+      if (mode !== 'height') {
+        const deltaX = (event.screenX - startX) * (mode === 'left' ? -1 : 1);
+        windowWidth = Math.max(BASE_WIDTH, Math.min(windowLimits.maxWidth, Math.round(startWidth + deltaX)));
+      }
+      editorHeight = fitEditorHeight(startHeight + event.screenY - startY);
+      syncWindowSize();
+    });
 
-    editorResizeState = null;
-    editorContainer.classList.remove('resizing');
+    const stopEditorResize = (event) => {
+      if (!editorResizeState) return;
+      if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+      editorResizeState = null;
+      editorContainer.classList.remove('resizing');
+    };
+    handle.addEventListener('pointerup', stopEditorResize);
+    handle.addEventListener('pointercancel', stopEditorResize);
+
+    handle.addEventListener('dblclick', (event) => {
+      event.preventDefault();
+      resetEditorSize();
+    });
   }
 
-  editorResizeHandle.addEventListener('pointerdown', (event) => {
-    event.preventDefault();
-    editorResizeState = {
-      startY: event.clientY,
-      startHeight: editorHeight
-    };
-    editorContainer.classList.add('resizing');
-    editorResizeHandle.setPointerCapture(event.pointerId);
+  // Each opening starts at the default size; the expression is kept
+  window.electronAPI?.onPopoverHidden?.(resetEditorSize);
+  window.electronAPI?.onPopoverShown?.((limits) => {
+    windowLimits = limits;
+    syncWindowSize();
   });
-
-  editorResizeHandle.addEventListener('pointermove', (event) => {
-    if (!editorResizeState) return;
-    const deltaY = event.clientY - editorResizeState.startY;
-    applyEditorHeight(editorResizeState.startHeight + deltaY);
-  });
-
-  editorResizeHandle.addEventListener('pointerup', (event) => {
-    stopEditorResize(event.pointerId);
-  });
-
-  editorResizeHandle.addEventListener('pointercancel', (event) => {
-    stopEditorResize(event.pointerId);
-  });
-
-  editorResizeHandle.addEventListener('dblclick', (event) => {
-    event.preventDefault();
-    applyEditorHeight(DEFAULT_EDITOR_HEIGHT);
-  });
+  window.addEventListener('resize', syncWindowSize);
 
   mathField.addEventListener('focusin', () => mathVirtualKeyboard.show());
 
