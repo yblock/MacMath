@@ -63,25 +63,6 @@ window.addEventListener('DOMContentLoaded', () => {
   mathField.mathVirtualKeyboardPolicy = 'manual';
   // Keep numbers as typed: MathLive would otherwise rewrite 3e2 as 3\times10^{2}.
   MathfieldElement.scientificNotationTemplate = '';
-  mathField.keybindings = [
-    ...mathField.keybindings,
-    { key: 'cmd+b', command: ['applyStyle', { variantStyle: 'bold' }] }
-  ];
-
-  mathField.addEventListener('keydown', (event) => {
-    if (!event.metaKey || event.key.toLowerCase() !== 'u') return;
-
-    const selectedLatex = mathField.getValue(mathField.selection, 'latex');
-    if (!selectedLatex) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    const underlined = selectedLatex.match(/^\\underline\{([\s\S]*)\}$/);
-    mathField.insert(underlined ? underlined[1] : `\\underline{${selectedLatex}}`, {
-      selectionMode: 'item'
-    });
-  }, true);
 
   // --- Theme toggle ---
 
@@ -277,6 +258,69 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // --- Keyboard shortcuts ---
 
+  // Cmd+Enter copies (below). MathLive also binds it to "add row", which would
+  // turn the expression into \displaylines{...} before it is copied.
+  mathField.keybindings = mathField.keybindings.filter(
+    (binding) => !/^cmd\+\[(Return|Enter)\]$/.test(binding.key)
+  );
+
+  // Cmd+B / Cmd+U: capture phase, so MathLive never sees a handled keystroke
+  mathField.addEventListener('keydown', (e) => {
+    if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    const key = e.key.toLowerCase();
+    const handled = key === 'b' ? toggleBold() : key === 'u' ? toggleUnderline() : false;
+    if (handled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+
+  function toggleBold() {
+    if (mathField.mode === 'latex') return false;
+    // Math bold is a variant style (\mathbf); text bold is a font series (\textbf)
+    const bold = mathField.mode === 'text' ? { fontSeries: 'b' } : { variantStyle: 'bold' };
+    if (mathField.selectionIsCollapsed && bold.variantStyle && mathField.queryStyle(bold) === 'all') {
+      // With no selection, applyStyle can turn variantStyle on but never off
+      mathField.executeCommand(['applyStyle', { variantStyle: '' }]);
+    } else {
+      mathField.executeCommand(['applyStyle', bold]);
+    }
+    return true;
+  }
+
+  function toggleUnderline() {
+    if (mathField.mode === 'latex' || mathField.selectionIsCollapsed) return false;
+    const selected = mathField.getValue(mathField.selection, 'latex');
+    if (!selected) return false;
+    // Insert as math LaTeX: in text mode a plain insert types the source literally
+    mathField.insert(underlineArgument(selected) ?? `\\underline{${selected}}`, {
+      format: 'latex',
+      mode: 'math',
+      selectionMode: 'item',
+    });
+    return true;
+  }
+
+  // '\underline{a}' → 'a', but '\underline{a}+\underline{b}' → null
+  function underlineArgument(latex) {
+    const command = '\\underline';
+    if (!latex.startsWith(`${command}{`)) return null;
+    const close = findClosingBrace(latex, command.length);
+    return close === latex.length - 1 ? latex.slice(command.length + 1, close) : null;
+  }
+
+  // Index of the } matching the { at openIndex, or -1. Skips escapes like \{ and \}.
+  function findClosingBrace(latex, openIndex) {
+    let depth = 0;
+    for (let i = openIndex; i < latex.length; i++) {
+      const ch = latex[i];
+      if (ch === '\\') i++;
+      else if (ch === '{') depth++;
+      else if (ch === '}' && --depth === 0) return i;
+    }
+    return -1;
+  }
+
   document.addEventListener('keydown', (e) => {
     // Don't trigger copy shortcuts when typing in text inputs
     const tag = e.target.tagName;
@@ -347,7 +391,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   copyMathMLBtn.addEventListener('click', () => {
-    const inner = mathField.getValue('math-ml');
+    const inner = getMathML();
     if (inner) {
       const latex = mathField.getValue('latex');
       addToHistory(latex);
@@ -356,6 +400,53 @@ window.addEventListener('DOMContentLoaded', () => {
       copyToClipboard(mathml).then(() => flashCopied(copyMathMLBtn));
     }
   });
+
+  // --- MathML export ---
+
+  // MathLive's MathML serializer silently drops \underline and \overline,
+  // contents included. Rewrite them as \underset/\overset with a marker script,
+  // then swap the marker for a stretchy line accent (the form KaTeX emits).
+  const LINE_ACCENTS = [
+    { command: '\\underline', standIn: '\\underset', element: 'munder', attribute: 'accentunder', marker: 'MacMathUnderline' },
+    { command: '\\overline', standIn: '\\overset', element: 'mover', attribute: 'accent', marker: 'MacMathOverline' },
+  ];
+
+  function getMathML() {
+    const latex = mathField.getValue('latex');
+    const accents = LINE_ACCENTS.filter(({ command }) => latex.includes(`${command}{`));
+    if (accents.length === 0) return mathField.getValue('math-ml');
+
+    let marked = latex;
+    for (const { command, standIn, marker } of accents) {
+      let start;
+      while ((start = marked.indexOf(`${command}{`)) !== -1) {
+        const open = start + command.length;
+        const close = findClosingBrace(marked, open);
+        if (close === -1) break;
+        // The extra braces stop MathLive from reading a leading \frac's
+        // numerator and denominator as the under/over scripts
+        marked = `${marked.slice(0, start)}${standIn}{\\text{${marker}}}{{${marked.slice(open + 1, close)}}}${marked.slice(close + 1)}`;
+      }
+    }
+
+    // MathLive emits HTML entities such as &nbsp;, so parse as HTML, not XML
+    const doc = new DOMParser().parseFromString(
+      `<math>${MathLive.convertLatexToMathMl(marked)}</math>`,
+      'text/html'
+    );
+    const math = doc.querySelector('math');
+    for (const { element, attribute, marker } of accents) {
+      for (const script of math.querySelectorAll(`${element} > mtext:last-child`)) {
+        if (script.textContent !== marker) continue;
+        const line = doc.createElementNS('http://www.w3.org/1998/Math/MathML', 'mo');
+        line.setAttribute('stretchy', 'true');
+        line.textContent = '\u203E';
+        script.parentElement.setAttribute(attribute, 'true');
+        script.replaceWith(line);
+      }
+    }
+    return math.innerHTML;
+  }
 
   // --- Namespace prefix ---
 
@@ -543,8 +634,14 @@ window.addEventListener('DOMContentLoaded', () => {
       case 'msubsup':
         return `${childAt(0)}_{${childAt(1)}}^{${childAt(2)}}`;
 
-      case 'munder':
-        return `\\underset{${childAt(1)}}{${childAt(0)}}`;
+      case 'munder': {
+        const base = childAt(0);
+        const underEl = Array.from(node.children)[1];
+        const underText = underEl ? underEl.textContent.trim() : '';
+        if (underText === '\u203E' || underText === '\u0332' || underText === '_')
+          return `\\underline{${base}}`;
+        return `\\underset{${childAt(1)}}{${base}}`;
+      }
 
       case 'mover': {
         const base = childAt(0);
@@ -552,7 +649,7 @@ window.addEventListener('DOMContentLoaded', () => {
         const overText = overEl ? overEl.textContent.trim() : '';
         if (overText === '\u0302' || overText === '^' || overText === '\u005E')
           return `\\hat{${base}}`;
-        if (overText === '\u0304' || overText === '\u00AF' || overText === '\u0305')
+        if (overText === '\u0304' || overText === '\u00AF' || overText === '\u0305' || overText === '\u203E')
           return `\\overline{${base}}`;
         if (overText === '\u2192' || overText === '\u20D7')
           return `\\vec{${base}}`;

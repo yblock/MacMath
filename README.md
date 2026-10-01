@@ -14,7 +14,7 @@ A macOS menu bar utility for writing math and copying it as LaTeX or MathML.
 - **MathML namespace prefix** -- set a custom prefix like `m:` or `mml:` for output
 - **Expression history** -- recent expressions saved for quick re-use
 - **Global shortcut** -- `Cmd+Shift+M` summons MacMath from any app
-- **Keyboard shortcuts** -- `Cmd+B` for bold text and `Cmd+U` for underline text toggle
+- **Bold and underline** -- `Cmd+B` and `Cmd+U` toggle formatting, exported to both LaTeX and MathML
 - **Light and dark mode** -- follows system preference, with a manual toggle
 - **Launch at login** -- option in the tray menu
 - **Text mode** -- switch between math symbols and plain text input
@@ -140,6 +140,8 @@ To import an existing expression, click **Import** and paste LaTeX or MathML. Th
 | `Cmd+Shift+M` | Toggle popover (works globally) |
 | `Cmd+Enter` | Copy LaTeX |
 | `Cmd+Shift+Enter` | Copy MathML |
+| `Cmd+B` | Toggle bold |
+| `Cmd+U` | Toggle underline on the selection |
 | `Cmd+Z` | Undo |
 
 ## Commands
