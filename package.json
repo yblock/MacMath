@@ -15,6 +15,6 @@
     "electron-builder": "^26.8.1"
   },
   "dependencies": {
-    "mathlive": "^0.103.0"
+    "mathlive": "^0.111.0"
   }
 }

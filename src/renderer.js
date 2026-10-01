@@ -61,6 +61,8 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   mathField.mathVirtualKeyboardPolicy = 'manual';
+  // Keep numbers as typed: MathLive would otherwise rewrite 3e2 as 3\times10^{2}.
+  MathfieldElement.scientificNotationTemplate = '';
   mathField.keybindings = [
     ...mathField.keybindings,
     { key: 'cmd+b', command: ['applyStyle', { variantStyle: 'bold' }] }
