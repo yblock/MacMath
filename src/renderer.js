@@ -438,7 +438,27 @@ window.addEventListener('DOMContentLoaded', () => {
     { command: '\\overline', standIn: '\\overset', element: 'mover', attribute: 'accent', marker: 'MacMathOverline' },
   ];
 
+  // XML only predefines &lt; &gt; &amp; &quot; &apos;. MathLive emits HTML
+  // entities such as &ne; and &nbsp;, which make XML documents invalid, so
+  // they become numeric references (&#8800;) on export and before import.
+  const XML_ENTITIES = new Set(['lt', 'gt', 'amp', 'quot', 'apos']);
+  const entityDecoder = document.createElement('textarea');
+
+  function toNumericEntities(markup) {
+    return markup.replace(/&([A-Za-z][A-Za-z0-9]*);/g, (entity, name) => {
+      if (XML_ENTITIES.has(name)) return entity;
+      entityDecoder.innerHTML = entity;
+      const text = entityDecoder.value;
+      if (text === entity) return entity; // not an HTML entity either
+      return [...text].map((ch) => `&#${ch.codePointAt(0)};`).join('');
+    });
+  }
+
   function getMathML() {
+    return toNumericEntities(serializeMathML());
+  }
+
+  function serializeMathML() {
     const latex = mathField.getValue('latex');
     const accents = LINE_ACCENTS.filter(({ command }) => latex.includes(`${command}{`));
     if (accents.length === 0) return mathField.getValue('math-ml');
@@ -587,7 +607,7 @@ window.addEventListener('DOMContentLoaded', () => {
   // --- MathML to LaTeX converter ---
 
   function mathmlToLatex(mathmlString) {
-    const clean = stripNamespaces(mathmlString);
+    const clean = stripNamespaces(toNumericEntities(mathmlString));
     const parser = new DOMParser();
 
     // Try parsing as-is
@@ -629,12 +649,14 @@ window.addEventListener('DOMContentLoaded', () => {
         return childLatex();
 
       case 'mi':
+        return tokenToLatex(node.textContent.trim());
+
       case 'mn':
         return node.textContent.trim();
 
       case 'mo': {
         const op = node.textContent.trim();
-        return moToLatex(op);
+        return tokenToLatex(op);
       }
 
       case 'mtext':
@@ -667,6 +689,9 @@ window.addEventListener('DOMContentLoaded', () => {
         const underText = underEl ? underEl.textContent.trim() : '';
         if (underText === '\u203E' || underText === '\u0332' || underText === '_')
           return `\\underline{${base}}`;
+        // Limits and big operators take a subscript: \lim_{x\to0}, not \underset{x\to0}{\lim}
+        if (/^\\(lim|max|min|sup|inf|sum|prod)\s*$/.test(base))
+          return `${base.trim()}_{${childAt(1)}}`;
         return `\\underset{${childAt(1)}}{${base}}`;
       }
 
@@ -794,10 +819,26 @@ window.addEventListener('DOMContentLoaded', () => {
     '\u03A6': '\\Phi',
     '\u03A8': '\\Psi',
     '\u03A9': '\\Omega',
+    // Invisible operators: function application, times, separator, plus
+    '\u2061': '',
+    '\u2062': '',
+    '\u2063': '',
+    '\u2064': '',
   };
 
-  function moToLatex(op) {
-    return MO_MAP[op] || op;
+  // Named functions MathML writes as <mi>sin</mi> (or <mo>lim</mo>)
+  const FUNCTION_NAMES = new Set([
+    'sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin', 'arccos', 'arctan',
+    'sinh', 'cosh', 'tanh', 'coth', 'log', 'ln', 'lg', 'exp', 'lim', 'max',
+    'min', 'sup', 'inf', 'det', 'dim', 'ker', 'deg', 'gcd', 'arg', 'hom', 'Pr',
+  ]);
+
+  // Text of an <mi> or <mo> as LaTeX. MO_MAP also covers Greek letters in <mi>.
+  // A command gets a trailing space so it can't run into a following letter
+  // (\sin x and a\times b, not \sinx and a\timesb).
+  function tokenToLatex(text) {
+    const latex = FUNCTION_NAMES.has(text) ? `\\${text}` : MO_MAP[text] ?? text;
+    return /\\[a-zA-Z]+$/.test(latex) ? `${latex} ` : latex;
   }
 
   // Focus on load
