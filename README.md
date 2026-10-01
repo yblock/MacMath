@@ -48,7 +48,7 @@ If you do not already have the project folder:
 2. Click **Code**.
 3. Click **Download ZIP**.
 4. Open the downloaded ZIP and extract it.
-5. Move the extracted `MacMath` folder somewhere easy to find, like your Desktop or Downloads folder.
+5. Move the extracted `MacMath` folder somewhere easy to find, like your Downloads folder. If iCloud Drive syncs your Desktop and Documents folders, avoid those, or see [Troubleshooting](#troubleshooting).
 
 ## Open The Project In Terminal
 
@@ -184,6 +184,25 @@ npm run build:dir
 - `npm start` runs the app directly
 - `npm run build` creates a local `.dmg`
 - `npm run build:dir` creates the `.app` bundle without building the `.dmg`
+
+## Troubleshooting
+
+### `npm start` or `npm run build` fails with "Cannot find module"
+
+This usually happens when the `MacMath` folder is inside Desktop or Documents and iCloud Drive syncs those folders (the **Desktop & Documents Folders** option in iCloud Drive settings). While syncing the thousands of files in `node_modules`, iCloud can rename some of them, for example to `rebuild 3`, and the build can no longer find them. You'll see an error like `Cannot find module '@electron/rebuild'`.
+
+To fix it, keep iCloud out of the folders npm and the build create, then reinstall. Run this in the project folder:
+
+```sh
+rm -rf node_modules
+mkdir -p node_modules dist
+xattr -w 'com.apple.fileprovider.ignore#P' 1 node_modules dist
+npm install
+```
+
+iCloud then leaves `node_modules` and `dist` on your Mac only. The setting stays as long as you keep using `npm install`; if you ever delete `node_modules`, run these steps again.
+
+You can also stop iCloud from syncing the whole project instead. Either move the folder out of Desktop and Documents, or rename it so it ends in `.nosync` (for example `MacMath.nosync`).
 
 ## License
 
