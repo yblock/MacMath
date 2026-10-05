@@ -1,5 +1,10 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut, screen, clipboard } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut, screen, clipboard, dialog, shell } = require('electron');
+const fs = require('fs');
 const path = require('path');
+const {
+  IMAGE_EXTENSIONS, isImageFile, listEngines, setEngine, unavailableReason, recognizeImage, isRecognizing, clipboardImage,
+  startOllama, downloadRecommendedModel, unloadOllamaModel
+} = require('./recognize');
 
 const isMac = process.platform === 'darwin';
 const workspaceVisibilityOptions = {
@@ -19,6 +24,8 @@ const DEFAULT_HEIGHT = 380;
 let mainWindow = null;
 let tray = null;
 let resetWorkspaceVisibilityTimer = null;
+// While a file dialog is open the popover loses focus, but it shouldn't hide
+let dialogOpen = false;
 
 function clearWorkspaceVisibilityReset() {
   if (resetWorkspaceVisibilityTimer) {
@@ -77,7 +84,7 @@ function createWindow() {
 
   // Hide the window when it loses focus to behave like a popover
   mainWindow.on('blur', () => {
-    if (!mainWindow.webContents.isDevToolsOpened()) {
+    if (!dialogOpen && !mainWindow.webContents.isDevToolsOpened()) {
       hideWindow();
     }
   });
@@ -115,6 +122,17 @@ function createTray() {
 
   tray.on('right-click', () => {
     tray.popUpContextMenu(buildTrayMenu());
+  });
+
+  // Dropping an image on the menu bar icon opens the popover and reads the math in it.
+  // (Dragging onto the popover itself doesn't work: it hides once another app has focus.)
+  tray.on('drop-files', (event, files) => {
+    const image = files.find(isImageFile);
+    if (!mainWindow.isVisible()) showWindow();
+    const result = image
+      ? startRecognition(image)
+      : Promise.resolve({ error: 'Drop an image file (PNG, JPEG, HEIC, TIFF…).' });
+    result.then((r) => mainWindow.webContents.send('recognition-result', r));
   });
 }
 
@@ -181,6 +199,68 @@ function buildTrayMenu() {
 
 ipcMain.handle('copy-text', (event, text) => clipboard.writeText(String(text)));
 
+// --- Reading math from images (recognize.js) ---
+
+// The renderer shows progress from here on: not while the file dialog is still open
+function startRecognition(file) {
+  if (!isRecognizing()) mainWindow.webContents.send('recognition-started');
+  return recognizeImage(file);
+}
+
+ipcMain.handle('image-engines', () => listEngines());
+ipcMain.handle('set-image-engine', (event, engine) => setEngine(engine));
+
+// Setting up Ollama from the Import panel. Each resolves with an error message or null.
+let downloadingModel = false;
+ipcMain.handle('ollama-setup', async (event, step) => {
+  if (step === 'missing') {
+    // Installing an app is the user's call: open the download page
+    await shell.openExternal('https://ollama.com/download/mac');
+    return null;
+  }
+  if (step === 'stopped') return startOllama();
+  if (step === 'no-model') {
+    if (downloadingModel) return null;
+    downloadingModel = true;
+    try {
+      return await downloadRecommendedModel((progress) => event.sender.send('ollama-download-progress', progress));
+    } finally {
+      downloadingModel = false;
+    }
+  }
+  return null;
+});
+
+ipcMain.handle('recognize-image-file', async () => {
+  const unavailable = await unavailableReason();
+  if (unavailable) return { error: unavailable };
+
+  dialogOpen = true;
+  let choice;
+  try {
+    choice = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose an image of math',
+      properties: ['openFile'],
+      filters: [{ name: 'Images', extensions: IMAGE_EXTENSIONS }]
+    });
+  } finally {
+    dialogOpen = false;
+    mainWindow.focus();
+  }
+  if (choice.canceled || !choice.filePaths.length) return { canceled: true };
+  return startRecognition(choice.filePaths[0]);
+});
+
+ipcMain.handle('recognize-clipboard-image', async () => {
+  const image = await clipboardImage();
+  if (image.error) return image;
+  try {
+    return await startRecognition(image.file);
+  } finally {
+    if (image.temporary) await fs.promises.rm(image.file, { force: true });
+  }
+});
+
 // anchor 'right' keeps the right edge in place (growing left); otherwise the left edge stays
 ipcMain.on('resize-window', (event, width, height, anchor) => {
   if (!mainWindow) return;
@@ -214,6 +294,17 @@ app.whenReady().then(() => {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+// Free the Ollama model's memory before quitting rather than leaving it loaded
+let modelUnloaded = false;
+app.on('before-quit', (event) => {
+  if (modelUnloaded) return;
+  event.preventDefault();
+  unloadOllamaModel().finally(() => {
+    modelUnloaded = true;
+    app.quit();
   });
 });
 

@@ -26,8 +26,16 @@ dmg:
 # A catch-all pattern would also pack local, untracked folders into the app.
 files:
   - main.js
+  - recognize.js
   - package.json
   - "src/**/*"
   - "!src/image.png"
+# The image recognition helper, outside the asar so it can run. Missing when it wasn't
+# built (no macOS 27 SDK); the app then says image recognition isn't available.
+extraResources:
+  - from: native/bin
+    to: .
+    filter:
+      - mathocr
 extraMetadata:
   main: main.js

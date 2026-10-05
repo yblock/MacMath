@@ -12,6 +12,7 @@ A macOS menu bar utility for writing math and copying it as LaTeX or MathML.
 - **Resizable editor** -- drag a bottom corner to make the editor wider and taller for large equations, up to the edges of your screen
 - **Copy as LaTeX or MathML** with one click or keyboard shortcut
 - **Import** LaTeX or MathML to edit visually -- auto-detects format and namespace prefixes
+- **Math from images** -- paste a screenshot, choose an image, or drop one on the menu bar icon, and a model on your Mac turns it into editable math: Apple Intelligence (macOS 27) or any vision model you've installed with [Ollama](https://ollama.com)
 - **MathML namespace prefix** -- set a custom prefix like `m:` or `mml:` for output
 - **Expression history** -- recent expressions saved for quick re-use
 - **Global shortcut** -- `Cmd+Shift+M` summons MacMath from any app
@@ -157,6 +158,22 @@ Right-click the menu bar icon for **Launch at Login** and **Quit MacMath**.
 
 To import an existing expression, click **Import** and paste LaTeX or MathML. The format is detected automatically, including namespace-prefixed MathML like `<m:math>`.
 
+### Reading math from images
+
+MacMath can turn an image of math into an expression you can edit. The image is read on your Mac and never uploaded. Any of these works:
+
+- Copy a screenshot (`Cmd+Ctrl+Shift+4`) or an image file in Finder, open MacMath and press `Cmd+V`
+- Click **Import**, then **Image…**, and choose a file
+- Drag an image file onto the MacMath icon in the menu bar
+
+A spinner covers the editor while the image is read, which takes a few seconds (longer the first time, while the model loads). The result replaces what's in the editor. MacMath tidies the LaTeX the model writes, for example `pmatrix` instead of `\left(\begin{array}…\right)`. Check the result before copying: models can misread symbols, especially in handwriting.
+
+Choose the model under **Import** → **Read images with**:
+
+- **Apple Intelligence** needs macOS 27 or later with Apple Intelligence turned on. It also needs a small helper program that `npm install` builds with Xcode or the Command Line Tools, and building it needs the macOS 27 SDK. If they were missing or older at install time, update them, then run `npm run build:ocr`.
+- **Ollama** works on any Mac that runs [Ollama](https://ollama.com), a free app for local AI models. If nothing on your Mac can read images yet, **Import** offers the next step: **Get Ollama…** opens its download page, **Start Ollama** opens the app, and **Download** fetches the recommended model: `qwen2.5vl:7b` (6 GB) when your Mac has the memory for it, otherwise `qwen2.5vl:3b` (3.2 GB). The 7B model is more accurate, especially with words and matrices, and takes about 10 seconds an image. Any other Ollama model that reads images also appears in the list. Models too large for your Mac's memory are listed but can't be chosen, because loading one can freeze the Mac. MacMath has Ollama unload the model 30 seconds after the last image, and when MacMath quits, so it doesn't hold on to memory.
+- **Automatic** (the default) uses Apple Intelligence when it's available, otherwise the recommended Ollama model, otherwise another installed Ollama model that reads images.
+
 Need more room? Drag either bottom corner of the editor to resize it in both directions, or the handle at the bottom center to change only its height. MacMath never grows past the edges of your screen; if the virtual keyboard needs the space, the editor shrinks to fit. Double-click a handle to go back to the default size. Each time you reopen MacMath it starts at the default size again, with your expression still there.
 
 ## Keyboard Shortcuts
@@ -178,14 +195,20 @@ npm install
 npm start
 npm run build
 npm run build:dir
+npm run build:ocr
 ```
 
 - `npm install` installs the required packages
 - `npm start` runs the app directly
 - `npm run build` creates a local `.dmg`
 - `npm run build:dir` creates the `.app` bundle without building the `.dmg`
+- `npm run build:ocr` builds the helper that reads math from images (`npm install` and the build commands run it too)
 
 ## Troubleshooting
+
+### Reading an image says Ollama isn't running, or takes very long
+
+Open the Ollama app; MacMath needs it running in the background. The first image after a while takes longer because Ollama loads the model into memory. If your Mac slows down badly, choose a smaller model under **Import** → **Read images with**, or quit apps you aren't using.
 
 ### `npm start` or `npm run build` fails with "Cannot find module"
 

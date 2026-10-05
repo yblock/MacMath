@@ -51,6 +51,11 @@ window.addEventListener('DOMContentLoaded', () => {
   const importInput = document.getElementById('importInput');
   const importHint = document.getElementById('importHint');
   const importBtn = document.getElementById('importBtn');
+  const imageBtn = document.getElementById('imageBtn');
+  const engineSelect = document.getElementById('engineSelect');
+  const setupRow = document.getElementById('setupRow');
+  const setupText = document.getElementById('setupText');
+  const setupBtn = document.getElementById('setupBtn');
   const nsPrefix = document.getElementById('nsPrefix');
   const nsExample = document.getElementById('nsExample');
   const appBottomAnchor = document.querySelector('.namespace-row');
@@ -578,6 +583,7 @@ window.addEventListener('DOMContentLoaded', () => {
   importToggle.addEventListener('click', () => {
     importSection.classList.toggle('open');
     importToggle.textContent = importSection.classList.contains('open') ? 'Close' : 'Import';
+    if (importSection.classList.contains('open')) refreshEngines();
     syncWindowSize();
   });
 
@@ -590,12 +596,12 @@ window.addEventListener('DOMContentLoaded', () => {
   importInput.addEventListener('input', () => {
     const text = importInput.value.trim();
     if (!text) {
-      importHint.textContent = 'Auto-detects format';
+      setImportHint('Auto-detects format');
       importBtn.disabled = true;
       return;
     }
     const fmt = detectFormat(text);
-    importHint.textContent = fmt === 'mathml' ? 'Detected: MathML' : 'Detected: LaTeX';
+    setImportHint(fmt === 'mathml' ? 'Detected: MathML' : 'Detected: LaTeX');
     importBtn.disabled = false;
   });
 
@@ -616,26 +622,186 @@ window.addEventListener('DOMContentLoaded', () => {
 
       const latex = mathmlToLatex(text);
       if (latex === null) {
-        importHint.textContent = 'Invalid MathML — could not parse';
-        importHint.style.color = '#ff453a';
-        setTimeout(() => {
-          importHint.style.color = '';
-          importHint.textContent = 'Auto-detects format';
-        }, 3000);
+        showImportError('Invalid MathML — could not parse');
         return;
       }
       mathField.setValue(latex);
     }
 
+    finishImport();
+  });
+
+  let importHintTimer = null;
+
+  function setImportHint(text, state = '') {
+    clearTimeout(importHintTimer);
+    importHint.textContent = text;
+    importHint.className = `import-hint ${state}`.trim();
+    syncWindowSize();
+  }
+
+  function showImportError(message) {
+    setImportHint(message, 'error');
+    importHintTimer = setTimeout(() => setImportHint('Auto-detects format'), 5000);
+  }
+
+  function openImport() {
+    if (!importSection.classList.contains('open')) refreshEngines();
+    importSection.classList.add('open');
+    importToggle.textContent = 'Close';
+    syncWindowSize();
+  }
+
+  function finishImport() {
     latexPreview.textContent = mathField.getValue('latex');
     importInput.value = '';
-    importHint.textContent = 'Auto-detects format';
+    setImportHint('Auto-detects format');
     importBtn.disabled = true;
     importSection.classList.remove('open');
     importToggle.textContent = 'Import';
     syncWindowSize();
     mathField.focus();
+    // Show the start of a long expression rather than its end
+    mathField.executeCommand('moveToMathfieldStart');
+  }
+
+  // --- Images (read by Apple Intelligence or Ollama in the main process) ---
+
+  const readingText = document.getElementById('readingText');
+  let readingTimer = null;
+
+  // Main sends this once the image is chosen, so not while the file dialog is open
+  function recognitionStarted() {
+    imageBtn.disabled = true;
+    editorContainer.classList.add('reading');
+    const started = Date.now();
+    readingText.textContent = 'Reading the image…';
+    clearInterval(readingTimer);
+    readingTimer = setInterval(() => {
+      readingText.textContent = `Reading the image… ${Math.round((Date.now() - started) / 1000)}s`;
+    }, 1000);
+  }
+
+  function recognitionFinished(result) {
+    // Another image arrived while one was being read; that one keeps going
+    if (result.busy) {
+      openImport();
+      showImportError(result.error);
+      return;
+    }
+    clearInterval(readingTimer);
+    editorContainer.classList.remove('reading');
+    imageBtn.disabled = false;
+    if (result.latex) {
+      mathField.setValue(result.latex);
+      finishImport();
+    } else if (result.error) {
+      openImport();
+      showImportError(result.error);
+    }
+  }
+
+  async function recognize(request) {
+    let result;
+    try {
+      result = await request();
+    } catch {
+      result = { error: 'Couldn\'t read the image.' };
+    }
+    recognitionFinished(result);
+  }
+
+  // Apple Intelligence and the Ollama vision models installed right now
+  async function refreshEngines() {
+    if (!window.electronAPI?.imageEngines) return;
+    const { engines, selected, setup, recommended } = await window.electronAPI.imageEngines();
+    engineSelect.replaceChildren(...engines.map((engine) => {
+      const option = new Option(engine.label, engine.id);
+      option.disabled = Boolean(engine.disabled);
+      if (engine.title) option.title = engine.title;
+      return option;
+    }));
+    engineSelect.value = selected;
+    if (!downloading) showSetupStep(setup, recommended);
+  }
+
+  // --- Ollama setup: one step at a time, offered when nothing on this Mac can read images yet ---
+
+  const SETUP_STEPS = {
+    missing: { text: 'Read images on this Mac with Ollama, a free app for local AI models.', button: 'Get Ollama…' },
+    stopped: { text: 'Ollama is installed but not running.', button: 'Start Ollama' },
+    'no-model': { text: (model) => `Download the recommended model, ${model.name} (${model.download}).`, button: 'Download' }
+  };
+  let setupStep = null;
+  let downloading = false;
+
+  function showSetupStep(step, recommended) {
+    setupStep = step;
+    setupRow.hidden = !step;
+    if (step) {
+      const { text, button } = SETUP_STEPS[step];
+      setupText.textContent = typeof text === 'function' ? text(recommended) : text;
+      setupText.className = 'import-hint';
+      setupBtn.textContent = button;
+      setupBtn.disabled = false;
+    }
+    syncWindowSize();
+  }
+
+  setupBtn.addEventListener('mousedown', (e) => e.preventDefault());
+  setupBtn.addEventListener('click', async () => {
+    const step = setupStep;
+    setupBtn.disabled = true;
+    if (step === 'stopped') setupText.textContent = 'Starting Ollama…';
+    if (step === 'no-model') {
+      downloading = true;
+      setupText.textContent = 'Downloading… 0%';
+    }
+    const error = await window.electronAPI.ollamaSetup(step);
+    downloading = false;
+    if (error) {
+      setupText.textContent = error;
+      setupText.className = 'import-hint error';
+      setupBtn.disabled = false;
+      return;
+    }
+    // After the download page opens, the user installs Ollama and reopens Import
+    if (step !== 'missing') await refreshEngines();
+    else setupBtn.disabled = false;
   });
+
+  window.electronAPI?.onOllamaDownloadProgress?.((progress) => {
+    setupText.textContent = `Downloading… ${Math.floor(progress * 100)}%`;
+  });
+
+  engineSelect.addEventListener('change', () => {
+    window.electronAPI?.setImageEngine(engineSelect.value);
+  });
+
+  imageBtn.addEventListener('mousedown', (e) => e.preventDefault());
+  imageBtn.addEventListener('click', () => recognize(window.electronAPI.recognizeImageFile));
+
+  const IMAGE_NAME = /\.(png|jpe?g|heic|heif|tiff?|gif|bmp|webp)$/i;
+
+  // Pasting an image (in the editor or the import box) reads it instead of inserting nothing.
+  // Capture phase, so MathLive's own paste handler doesn't see it first.
+  window.addEventListener('paste', (e) => {
+    const data = e.clipboardData;
+    if (!data || imageBtn.disabled || !window.electronAPI?.recognizeClipboardImage) return;
+    const hasImage = [...data.items].some((item) => item.kind === 'file' && item.type.startsWith('image/'));
+    const text = data.getData('text/plain').trim();
+    // A file copied in Finder: the text is its name, or the list has its file URL
+    const copiedFile = IMAGE_NAME.test(text) ||
+      data.getData('text/uri-list').split(/\r?\n/).some((uri) => uri.startsWith('file:') && IMAGE_NAME.test(uri.trim()));
+    // Copies from Word and similar apps carry a picture of the text too: paste the text
+    if (!copiedFile && !(hasImage && !text)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    recognize(window.electronAPI.recognizeClipboardImage);
+  }, true);
+
+  window.electronAPI?.onRecognitionStarted?.(recognitionStarted);
+  window.electronAPI?.onRecognitionResult?.(recognitionFinished);
 
   // --- MathML preprocessing ---
 

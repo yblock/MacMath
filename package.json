@@ -1,7 +1,7 @@
 {
   "name": "macmath",
-  "version": "1.1.0",
-  "description": "macOS menu bar app for math expressions — copy as LaTeX or MathML",
+  "version": "1.2.0",
+  "description": "macOS menu bar app for math expressions \u2014 copy as LaTeX or MathML",
   "main": "main.js",
   "author": "Yblock",
   "license": "MIT",
@@ -9,9 +9,11 @@
     "node": ">=22.12.0"
   },
   "scripts": {
+    "postinstall": "node native/build.js",
     "start": "electron .",
-    "build": "electron-builder --mac",
-    "build:dir": "electron-builder --mac --dir"
+    "build:ocr": "node native/build.js",
+    "build": "node native/build.js && electron-builder --mac",
+    "build:dir": "node native/build.js && electron-builder --mac --dir"
   },
   "devDependencies": {
     "electron": "^44.5.1",

@@ -4,6 +4,20 @@ All notable changes to MacMath. Versions match the `version` in `package.json`.
 
 **Updating?** Get the latest code, then run `npm install` before `npm start` or `npm run build`. See [Updating MacMath](README.md#updating-macmath).
 
+## 1.2.0 - 2026-10-05
+
+### Added
+
+- Turn an image of math into an editable expression. Paste a screenshot or an image file copied in Finder with `Cmd+V`, click **Import** then **Image…**, or drag an image file onto the menu bar icon. The image is read on your Mac, never uploaded, by either:
+  - Apple Intelligence, on macOS 27 or later. This needs the macOS 27 SDK (Xcode or the Command Line Tools) when you run `npm install`.
+  - Any vision model you've installed with [Ollama](https://ollama.com), such as `qwen2.5vl`.
+
+  Pick one under **Import** → **Read images with**. **Automatic** uses Apple Intelligence when it's available, otherwise Ollama.
+- If nothing on your Mac can read images yet, **Import** walks you through setting up Ollama: open its download page, start it, and download the recommended model with a progress bar: `qwen2.5vl:7b` when your Mac has the memory for it, otherwise `qwen2.5vl:3b`.
+- MacMath has Ollama unload the model 30 seconds after the last image and when MacMath quits. Models too large for your Mac's memory can't be chosen.
+- A spinner with a seconds counter covers the editor while an image is read.
+- MacMath tidies the LaTeX models write: matrices, determinants and case splits come back as `pmatrix`, `bmatrix`, `vmatrix` and `cases` rather than `array`, without extra braces or letter-by-letter spacing.
+
 ## 1.1.0 - 2026-10-01
 
 Run `npm install` after updating to this version. MacMath now uses newer versions of Electron and MathLive, and the editor won't load until they're installed.
