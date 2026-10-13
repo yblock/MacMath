@@ -123,6 +123,7 @@ window.addEventListener('DOMContentLoaded', () => {
   setEditorHeight(editorHeight);
 
   mathVirtualKeyboard.container = kbContainer;
+  mathVirtualKeyboard.layouts = ['numeric', 'symbols', 'alphabetic', 'greek', chemistryKeyboard()];
 
   function setEditorHeight(height) {
     if (height === appliedEditorHeight) return;
@@ -229,6 +230,91 @@ window.addEventListener('DOMContentLoaded', () => {
   mathVirtualKeyboard.addEventListener('geometrychange', () => {
     syncWindowSize();
   });
+
+  // --- Chemistry keyboard ---
+
+  // Plain LaTeX, so everything stays editable: elements are \mathrm{}, isotopes {}^{A}_{Z}X.
+  // mhchem's \ce{} also works when typed or pasted, but MathLive edits it as a single block.
+  function chemistryKeyboard() {
+    const upright = (symbol) => `\\mathrm{${symbol}}`;
+    // An element, with related ones on a long press
+    const element = (symbol, related) => ({
+      latex: upright(symbol),
+      variants: related.split(' ').map(upright),
+    });
+    const state = (name, tooltip) => ({ latex: `(\\mathrm{${name}})`, label: `(${name})`, class: 'small', tooltip });
+    return {
+      // In the math font, like the other layouts' labels
+      label: MathLive.convertLatexToMarkup('\\mathrm{H_2O}'),
+      tooltip: 'Chemistry',
+      layers: [{ id: 'chemistry', rows: [
+        [
+          {
+            latex: '{}^{#?}_{#?}\\mathrm{#?}',
+            tooltip: 'Isotope: mass number and atomic number',
+            variants: [{ latex: '{}^{#?}\\mathrm{#?}', tooltip: 'Mass number only' }],
+          },
+          { latex: '\\mathrm{#?}', tooltip: 'Element or upright text' },
+          { latex: '#@_{#?}', tooltip: 'Number of atoms' },
+          {
+            latex: '#@^{#?}',
+            tooltip: 'Charge',
+            variants: ['#@^{2+}', '#@^{2-}', '#@^{3+}', '#@^{3-}', '#@^{\\bullet}'],
+          },
+          { latex: '#@^{+}', tooltip: 'Positive ion' },
+          { latex: '#@^{-}', tooltip: 'Negative ion' },
+          { latex: '\\cdot', tooltip: 'Hydrate: CuSO₄·5H₂O' },
+          { latex: '[#?]', tooltip: 'Concentration or complex ion' },
+          { latex: '\\mathrm{e}^{-}', tooltip: 'Electron' },
+          '+',
+        ],
+        [
+          { latex: '\\rightarrow', tooltip: 'Reaction', variants: ['\\longrightarrow', '\\leftarrow'] },
+          { latex: '\\rightleftharpoons', tooltip: 'Equilibrium' },
+          { latex: '\\leftrightarrow', tooltip: 'Resonance', variants: ['\\longleftrightarrow'] },
+          { latex: '\\xrightarrow{#?}', tooltip: 'Reaction with a condition above' },
+          { latex: '\\xrightarrow[#?]{#?}', tooltip: 'Reaction with conditions above and below' },
+          {
+            latex: '\\xrightleftharpoons{#?}',
+            tooltip: 'Equilibrium with a condition above',
+            variants: ['\\xrightleftharpoons[#?]{#?}'],
+          },
+          { latex: '\\uparrow', tooltip: 'Gas given off' },
+          { latex: '\\downarrow', tooltip: 'Precipitate' },
+          { latex: '\\Delta', tooltip: 'Heat' },
+          { latex: '#@^{\\circ}', tooltip: 'Standard state: ΔH°' },
+        ],
+        [
+          state('s', 'Solid'),
+          state('l', 'Liquid'),
+          state('g', 'Gas'),
+          state('aq', 'Aqueous'),
+          { latex: '\\mathrm{pH}', variants: ['\\mathrm{pOH}', '\\mathrm{p}K_{\\mathrm{a}}'] },
+          {
+            latex: 'K_{\\mathrm{a}}',
+            tooltip: 'Equilibrium constants',
+            variants: ['K_{\\mathrm{b}}', 'K_{\\mathrm{w}}', 'K_{\\mathrm{sp}}', 'K_{\\mathrm{eq}}', 'K_{\\mathrm{c}}', 'K_{\\mathrm{p}}'],
+          },
+          { latex: '\\Delta H^{\\circ}', variants: ['\\Delta G^{\\circ}', '\\Delta S^{\\circ}', 'E^{\\circ}', 'E^{\\circ}_{\\mathrm{cell}}'] },
+          { latex: '\\mathrm{mol}', variants: ['\\mathrm{M}', '\\mathrm{g}', '\\mathrm{L}', '\\mathrm{kJ}', '\\mathrm{atm}', '\\mathrm{K}'] },
+          '(',
+          ')',
+        ],
+        [
+          element('H', 'He Li Be B'),
+          element('C', 'Ca Co Cr Cu Cd Cs'),
+          element('N', 'Na Ne Ni'),
+          element('O', 'Os'),
+          element('F', 'Fe Fr'),
+          element('P', 'Pb Pt Pd'),
+          element('S', 'Si Sn Se Sr Sc Sb'),
+          element('Cl', 'Br I'),
+          element('Na', 'Li K Rb Cs Mg'),
+          element('Fe', 'Mn Co Ni Cu Zn Ag Au Hg Al'),
+        ],
+      ] }],
+    };
+  }
 
   // --- Text mode toggle ---
 
@@ -481,6 +567,15 @@ window.addEventListener('DOMContentLoaded', () => {
     MacMathOverbrace: '\u23DE',
     MacMathRightArrow: '\u2192',
     MacMathLeftArrow: '\u2190',
+    MacMathLeftRightArrow: '\u2194',
+    MacMathRightLeftHarpoons: '\u21CC',
+  };
+  // Marker -> the operator that replaces it. MathLive writes \longrightarrow and the like as an
+  // <munder> with the arrow as bare text that takes the next symbol along (a\longrightarrow b).
+  const OPERATOR_MARKERS = {
+    MacMathLongRightArrow: '\u27F6',
+    MacMathLongLeftArrow: '\u27F5',
+    MacMathLongLeftRightArrow: '\u27F7',
   };
   // Marker -> the <mpadded> attributes inside its <mphantom>: \hphantom has no height or depth,
   // \vphantom no width (how Word's mathml2omml.xsl reads a smashed phantom)
@@ -501,6 +596,8 @@ window.addEventListener('DOMContentLoaded', () => {
     { command: '\\overbrace', wrap: script('\\overset', 'MacMathOverbrace') },
     { command: '\\xrightarrow', wrap: ['\\overset{', '}{\\text{MacMathRightArrow}}'] },
     { command: '\\xleftarrow', wrap: ['\\overset{', '}{\\text{MacMathLeftArrow}}'] },
+    { command: '\\xleftrightarrow', wrap: ['\\overset{', '}{\\text{MacMathLeftRightArrow}}'] },
+    { command: '\\xrightleftharpoons', wrap: ['\\overset{', '}{\\text{MacMathRightLeftHarpoons}}'] },
     // \hphantom and \vphantom first: \phantom{ is also found inside them
     { command: '\\hphantom', wrap: script('\\underset', 'MacMathHPhantom') },
     { command: '\\vphantom', wrap: script('\\underset', 'MacMathVPhantom') },
@@ -521,6 +618,9 @@ window.addEventListener('DOMContentLoaded', () => {
     [/\\widetilde(?![a-zA-Z])/g, '\\tilde'],
     [/\\dots(?![a-zA-Z])/g, '\\ldots'],
     [/\\iff(?![a-zA-Z])/g, '\\Longleftrightarrow'],
+    [/\\longrightarrow(?![a-zA-Z])/g, '{\\text{MacMathLongRightArrow}}'],
+    [/\\longleftarrow(?![a-zA-Z])/g, '{\\text{MacMathLongLeftArrow}}'],
+    [/\\longleftrightarrow(?![a-zA-Z])/g, '{\\text{MacMathLongLeftRightArrow}}'],
     // \pmod and \bmod come out as errors, \mathbin{…} and the like as nothing
     [/\\pmod\s*(\{[^{}]*\}|\\[a-zA-Z]+|\S)/g, '\\quad(\\operatorname{mod}\\,$1)'],
     [/\\bmod(?![a-zA-Z])/g, '\\operatorname{mod}'],
@@ -567,7 +667,7 @@ window.addEventListener('DOMContentLoaded', () => {
   function serializeMathML() {
     // From the LaTeX, not getValue('math-ml'): the live field leaves out styles applied with
     // applyStyle (Cmd+I's \mathrm) until the expression is parsed again
-    let marked = mathField.getValue('latex');
+    let marked = arrowsWithLabelBelow(expandChemistry(mathField.getValue('latex')));
     for (const [pattern, replacement] of EXPORT_REWRITES) marked = marked.replace(pattern, replacement);
     for (const { command, wrap: [before, after], keep } of MARKED_COMMANDS) {
       let from = 0;
@@ -596,7 +696,14 @@ window.addEventListener('DOMContentLoaded', () => {
       mo.textContent = text;
       return mo;
     };
-    for (const marker of math.querySelectorAll('munder > mtext:last-child, mover > mtext:last-child, mover > mtext:first-child')) {
+    for (const marker of [...math.querySelectorAll('mtext')].filter((t) => OPERATOR_MARKERS[t.textContent])) {
+      marker.replaceWith(operator(OPERATOR_MARKERS[marker.textContent]));
+    }
+    // \xrightarrow[below]{above} is \underset{below}{\overset{above}{marker}}, an <munderover>,
+    // and \xrightarrow[below]{} is \underset{below}{marker}
+    const markers = 'munder > mtext:last-child, mover > mtext:last-child, mover > mtext:first-child, ' +
+      'munderover > mtext:first-child, munder > mtext:first-child';
+    for (const marker of math.querySelectorAll(markers)) {
       const wrapper = marker.parentElement;
       const name = marker.textContent;
       if (VARIANT_MARKERS[name]) {
@@ -672,6 +779,7 @@ window.addEventListener('DOMContentLoaded', () => {
         if (el.children.length === count - 1) el.prepend(el.ownerDocument.createElementNS(MATHML_NS, 'mrow'));
       }
     }
+    prescriptsToMultiscripts(math);
     // \binom writes a table with no cells (<mtr><mi>n</mi></mtr>); MathML's binomial is a
     // fraction with no line. Other tables get their missing cells.
     for (const table of math.querySelectorAll('mtable')) {
@@ -711,6 +819,50 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Scripts on an empty base before something are prescripts: {}^{3}\mathrm{He} and
+  // {}_{92}^{235}U become <mmultiscripts>. Word draws any empty slot as a box (an empty base, or
+  // <none/> for the missing prescript), so that slot gets an invisible copy of the other script.
+  // The importer reads a phantom prescript as empty.
+  function prescriptsToMultiscripts(math) {
+    const SCRIPTS = new Set(['msub', 'msup', 'msubsup']);
+    // [subscript, superscript] of an msub, msup or msubsup, null where there is none
+    const scriptsOf = (el) => ({
+      msub: [el.children[1], null],
+      msup: [null, el.children[1]],
+      msubsup: [el.children[1], el.children[2]],
+    })[el.localName];
+    const isEmptyRow = (el) => el?.localName === 'mrow' && !el.childNodes.length;
+    for (const script of [...math.querySelectorAll('msub, msup, msubsup')]) {
+      if (!script.isConnected || !isEmptyRow(script.firstElementChild)) continue;
+      let next = script.nextElementSibling;
+      while (isInvisible(next)) next = next.nextElementSibling;
+      if (!next || ['mo', 'mspace'].includes(next.localName) || isEmptyRow(next.firstElementChild)) continue;
+      const doc = script.ownerDocument;
+      const element = (name, ...children) => {
+        const el = doc.createElementNS(MATHML_NS, name);
+        el.append(...children);
+        return el;
+      };
+      const slot = (el) => el ?? element('none');
+      // Invisible operators between the prescripts and the base go too
+      while (script.nextElementSibling !== next) script.nextElementSibling.remove();
+      const [preSub, preSup] = scriptsOf(script);
+      // The base keeps its own scripts: {}^{3}\mathrm{He}^{+}
+      const post = SCRIPTS.has(next.localName) ? scriptsOf(next) : null;
+      const multi = element(
+        'mmultiscripts',
+        post ? next.firstElementChild : next,
+        ...(post ? post.map(slot) : []),
+        element('mprescripts'),
+        preSub ?? element('mphantom', preSup.cloneNode(true)),
+        preSup ?? element('mphantom', preSub.cloneNode(true)),
+      );
+      // A base with scripts was taken apart; a plain base has already moved
+      if (post) next.remove();
+      script.replaceWith(multi);
+    }
+  }
+
   // Bold or script letters, digits and text (operators stay as they are, like in LaTeX).
   // MathLive already writes \bm{x} as 𝐱, which needs no attribute.
   function markVariant(element, variant) {
@@ -720,6 +872,149 @@ window.addEventListener('DOMContentLoaded', () => {
         token.setAttribute('mathvariant', variant);
       }
     }
+  }
+
+  // --- Chemistry: mhchem's \ce{…} and \pu{…} ---
+
+  // MathLive draws \ce and \pu but writes no MathML for them, so the export expands them with
+  // mhchem's own parser first. Its LaTeX is built for print: subscripts and charges sit on a
+  // phantom A, isotope numbers are right-aligned with \llap, and \mathrel{} pads arrows. That
+  // becomes plain LaTeX: \ce{H2O} is \mathrm{H}_{2}\mathrm{O}, \ce{^{235}_{92}U} is
+  // {}_{92}^{235}\mathrm{U}.
+  function expandChemistry(latex) {
+    if (typeof mhchemParser === 'undefined') return latex;
+    let out = latex;
+    const pattern = /\\(ce|pu)\s*\{/g;
+    let match;
+    while ((match = pattern.exec(out))) {
+      const open = match.index + match[0].length - 1;
+      const close = findClosingBrace(out, open);
+      if (close < 0) break;
+      let tex;
+      try {
+        tex = mhchemParser.toTex(out.slice(open + 1, close), match[1]);
+      } catch {
+        continue; // mhchem can't read it; MathLive shows the error
+      }
+      // A script's argument stays one group: x^\ce{…}
+      let tidy = tidyMhchem(tex);
+      if (tidy.startsWith('{') && findClosingBrace(tidy, 0) === tidy.length - 1) tidy = tidy.slice(1, -1);
+      const replacement = /[\^_]\s*$/.test(out.slice(0, match.index)) ? `{${tidy}}` : tidy;
+      out = out.slice(0, match.index) + replacement + out.slice(close + 1);
+      pattern.lastIndex = match.index + replacement.length;
+    }
+    return out;
+  }
+
+  // {\vphantom{A}}^{\hphantom{235}}_{\hphantom{92}}\mkern-1.5mu{\vphantom{A}}^{\smash[t]{\vphantom{2}}\llap{235}}_{\vphantom{2}\llap{\smash[t]{92}}}
+  const MHCHEM_ISOTOPE = /\{\\vphantom\{A\}\}\^\{\\hphantom\{[^{}]*\}\}_\{\\hphantom\{[^{}]*\}\}\\mkern-?[\d.]+mu\{\\vphantom\{A\}\}\^\{\\smash\[t\]\{\\vphantom\{2\}\}\\llap\{([^{}]*)\}\}_\{\\vphantom\{2\}\\llap\{\\smash\[t\]\{([^{}]*)\}\}\}/g;
+  // Arrows MathLive doesn't know
+  const MHCHEM_ARROWS = [
+    [/\\long(Right|Left|right|left)(left|right)harpoons(?![a-zA-Z])/g, '\\rightleftharpoons'],
+    [/\\longleftrightarrows(?![a-zA-Z])/g, '\\leftrightarrows'],
+  ];
+
+  function tidyMhchem(tex) {
+    let out = tex
+      .replace(MHCHEM_ISOTOPE, (m, sup, sub) => `{}${sub ? `_{${sub}}` : ''}${sup ? `^{${sup}}` : ''}`)
+      // \mathrm{H}{\vphantom{A}}_{\smash[t]{2}} -> \mathrm{H}_{2}
+      .replace(/\{\\vphantom\{A\}\}(?=[_^])/g, '')
+      .replace(/\\smash\[[tb]\]\{([^{}]*)\}/g, '$1')
+      .replace(/\\llap\{([^{}]*)\}/g, '$1')
+      // \mathrm{\Delta} over an arrow: capital Greek is upright already
+      .replace(/\\mathrm\{(\\[A-Z][a-z]+)\}/g, '$1')
+      .replace(/\\[vh]phantom\{[^{}]*\}/g, '')
+      .replace(/\\m(kern|skip)-?[\d.]+mu\s*/g, '')
+      // {}+{}: empty groups that make + a binary operator
+      .replace(/\{\}(\\[a-zA-Z]+|[^{}\\\s])\{\}/g, '$1');
+    // {}\mathrel{\xrightarrow{…}}{}
+    for (let i = out.indexOf('{}\\mathrel{'); i >= 0; i = out.indexOf('{}\\mathrel{', i)) {
+      const open = i + '{}\\mathrel'.length;
+      const close = findClosingBrace(out, open);
+      if (close < 0) break;
+      const after = out.startsWith('{}', close + 1) ? close + 3 : close + 1;
+      out = out.slice(0, i) + out.slice(open + 1, close) + out.slice(after);
+    }
+    out = labeledEquilibriumArrows(out);
+    for (const [pattern, replacement] of MHCHEM_ARROWS) out = out.replace(pattern, replacement);
+    return out;
+  }
+
+  // The `count` braced arguments starting at `at`, and the index after them; null if missing
+  function bracedArguments(latex, at, count) {
+    const args = [];
+    let i = at;
+    while (args.length < count && latex[i] === '{') {
+      const close = findClosingBrace(latex, i);
+      if (close < 0) return null;
+      args.push(latex.slice(i + 1, close));
+      i = close + 1;
+    }
+    return args.length === count ? [args, i] : null;
+  }
+
+  // mhchem puts labels on equilibrium arrows with \overset and \underset{\lower6mu{…}}:
+  // \underset{\lower6mu{below}}{\overset{above}{\longrightleftharpoons}} -> \xrightleftharpoons[below]{above}
+  function labeledEquilibriumArrows(latex) {
+    const harpoons = /^\\long(Right|Left|right|left)(left|right)harpoons$/;
+    // A command, its number of arguments, and their replacement (null keeps the command)
+    const rules = [
+      [/\\lower\d+mu(?=\{)/g, 1, ([raised]) => raised],
+      [/\\overset(?=\{)/g, 2, ([above, base]) => (harpoons.test(base) ? `\\xrightleftharpoons{${above}}` : null)],
+      [/\\underset(?=\{)/g, 2, ([below, base]) => {
+        if (harpoons.test(base)) return `\\xrightleftharpoons[${below}]{}`;
+        const above = base.match(/^\\xrightleftharpoons(\{[\s\S]*\})$/)?.[1];
+        return above ? `\\xrightleftharpoons[${below}]${above}` : null;
+      }],
+    ];
+    let out = latex;
+    for (const [pattern, count, rewrite] of rules) {
+      let match;
+      while ((match = pattern.exec(out))) {
+        const parsed = bracedArguments(out, match.index + match[0].length, count);
+        const replacement = parsed && rewrite(parsed[0]);
+        if (replacement == null) continue;
+        out = out.slice(0, match.index) + replacement + out.slice(parsed[1]);
+        pattern.lastIndex = match.index;
+      }
+    }
+    return out;
+  }
+
+  const X_ARROW_MARKERS = {
+    xrightarrow: 'MacMathRightArrow',
+    xleftarrow: 'MacMathLeftArrow',
+    xleftrightarrow: 'MacMathLeftRightArrow',
+    xrightleftharpoons: 'MacMathRightLeftHarpoons',
+  };
+
+  // \xrightarrow[below]{above}: the export marks \xrightarrow{above}, so the label below
+  // becomes an \underset around it
+  function arrowsWithLabelBelow(latex) {
+    let out = latex;
+    const pattern = /\\(x(?:rightarrow|leftarrow|leftrightarrow|rightleftharpoons))\s*\[/g;
+    let match;
+    while ((match = pattern.exec(out))) {
+      const bracket = match.index + match[0].length - 1;
+      let end = bracket + 1;
+      for (let depth = 0; end < out.length && !(out[end] === ']' && depth === 0); end++) {
+        if (out[end] === '\\') end++;
+        else if (out[end] === '{') depth++;
+        else if (out[end] === '}') depth--;
+      }
+      const open = out.indexOf('{', end);
+      if (end >= out.length || open < 0 || !/^\s*$/.test(out.slice(end + 1, open))) continue;
+      const close = findClosingBrace(out, open);
+      if (close < 0) break;
+      const below = out.slice(bracket + 1, end);
+      const above = out.slice(open + 1, close);
+      // With no label above, the marker arrow itself is the base
+      const arrow = /\S/.test(above) ? `\\${match[1]}{${above}}` : `\\text{${X_ARROW_MARKERS[match[1]]}}`;
+      const replacement = `\\underset{${below}}{${arrow}}`;
+      out = out.slice(0, match.index) + replacement + out.slice(close + 1);
+      pattern.lastIndex = match.index + replacement.length;
+    }
+    return out;
   }
 
   // --- Namespace prefix ---
@@ -736,7 +1031,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (!isValidXmlPrefix(p)) {
       return `<math xmlns="http://www.w3.org/1998/Math/MathML">${innerMathml}</math>`;
     }
-    const prefixed = innerMathml.replace(/<(\/?)(m)([a-z])/g, `<$1${p}:$2$3`);
+    // MathML elements start with m, except <none/> (an empty slot in <mmultiscripts>)
+    const prefixed = innerMathml.replace(/<(\/?)(?=m[a-z]|none\b)/g, `<$1${p}:`);
     return `<${p}:math xmlns:${p}="http://www.w3.org/1998/Math/MathML">${prefixed}</${p}:math>`;
   }
 
@@ -1087,6 +1383,9 @@ window.addEventListener('DOMContentLoaded', () => {
         if (underText === '‾' || underText === '̲' || underText === '_')
           return `\\underline{${base}}`;
         if (underText === '⏟') return `\\underbrace{${base}}`;
+        // An arrow with a label only below: \xrightarrow[below]{}
+        const arrow = X_ARROWS[baseEl?.textContent.trim()];
+        if (arrow && baseEl.localName === 'mo') return `${arrow}[${childAt(1)}]{}`;
         // Limits, big operators and braces take a subscript: \lim_{x\to0}, not \underset{x\to0}{\lim}
         if (/^\\(lim|max|min|sup|inf|sum|prod|coprod|bigcup|bigcap|bigoplus|bigotimes|bigvee|bigwedge)\s*$/.test(base) ||
           isStretched(baseEl, 'munder', '⏟'))
@@ -1098,8 +1397,11 @@ window.addEventListener('DOMContentLoaded', () => {
         return overLatex(elements, childAt);
 
       case 'munderover': {
-        const arrow = { '→': '\\xrightarrow', '←': '\\xleftarrow' }[elements[0]?.textContent.trim()];
+        const arrow = X_ARROWS[elements[0]?.textContent.trim()];
         if (arrow && elements[0].localName === 'mo') return `${arrow}[${childAt(1)}]{${childAt(2)}}`;
+        // Labels on another arrow (⇆): limits would make them scripts beside it
+        if (elements[0]?.localName === 'mo' && isArrow(elements[0].textContent.trim()))
+          return `\\underset{${childAt(1)}}{\\overset{${childAt(2)}}{${childAt(0)}}}`;
         return `${childAt(0)}_{${childAt(1)}}^{${childAt(2)}}`;
       }
 
@@ -1276,6 +1578,12 @@ window.addEventListener('DOMContentLoaded', () => {
     return accentCommands.get(text) ?? ACCENT_ALIASES[text];
   }
 
+  // Arrows: U+2190–21FF, U+27F0–27FF and U+2900–297F
+  const isArrow = (text) => /^[\u2190-\u21FF\u27F0-\u27FF\u2900-\u297F]$/.test(text);
+
+  // Arrows that stretch to fit a label: \xrightarrow{label}
+  const X_ARROWS = { '→': '\\xrightarrow', '←': '\\xleftarrow', '↔': '\\xleftrightarrow', '⇌': '\\xrightleftharpoons' };
+
   // <mover>: an accent, a line, arrow or brace over its base, or \xrightarrow's label
   function overLatex(elements, childAt) {
     const [baseEl, overEl] = elements;
@@ -1284,7 +1592,7 @@ window.addEventListener('DOMContentLoaded', () => {
     // A line or arrow over more than one character stretches: \overline{AB}, \overrightarrow{AB}
     const wide = overEl?.getAttribute('stretchy') === 'true' ||
       !(baseEl?.matches('mi, mn, mo') && [...baseEl.textContent.trim()].length === 1);
-    const arrow = { '→': '\\xrightarrow', '←': '\\xleftarrow' }[baseEl?.textContent.trim()];
+    const arrow = X_ARROWS[baseEl?.textContent.trim()];
     if (arrow && baseEl.localName === 'mo') return `${arrow}{${childAt(1)}}`;
     if (overText === '‾' || (wide && (overText === '¯' || overText === '̅')))
       return `\\overline{${base}}`;
@@ -1336,7 +1644,8 @@ window.addEventListener('DOMContentLoaded', () => {
     subset supset subseteq supseteq sqsubseteq sqsupseteq in notin ni mid parallel perp models
     vdash dashv asymp doteq
     to rightarrow leftarrow leftrightarrow Rightarrow Leftarrow Leftrightarrow Longrightarrow
-    Longleftarrow Longleftrightarrow longrightarrow longleftarrow mapsto uparrow downarrow
+    Longleftarrow Longleftrightarrow mapsto uparrow downarrow
+    rightleftharpoons leftrightharpoons rightleftarrows leftrightarrows
     updownarrow Uparrow Downarrow nearrow searrow swarrow nwarrow hookrightarrow hookleftarrow
     infty forall exists nexists emptyset nabla partial aleph hbar ell wp Re Im angle triangle
     therefore because ldots cdots vdots ddots prime degree top bot surd
@@ -1352,6 +1661,10 @@ window.addEventListener('DOMContentLoaded', () => {
         const char = match && decodeEntities(match[1]);
         if (char && !symbolCommands.has(char)) symbolCommands.set(char, `\\${name}`);
       }
+      // MathLive writes these as an <munder>, so they come from the export's markers instead
+      symbolCommands.set('\u27F6', '\\longrightarrow');
+      symbolCommands.set('\u27F5', '\\longleftarrow');
+      symbolCommands.set('\u27F7', '\\longleftrightarrow');
     }
     return symbolCommands.get(text);
   }

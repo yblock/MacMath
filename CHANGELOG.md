@@ -4,6 +4,24 @@ All notable changes to MacMath. Versions match the `version` in `package.json`.
 
 **Updating?** Get the latest code, then run `npm install` before `npm start` or `npm run build`. See [Updating MacMath](README.md#updating-macmath).
 
+## 1.4.0 - 2026-10-13
+
+Run `npm install` after updating to this version: it adds mhchem's parser.
+
+### Added
+
+- A chemistry keyboard: choose **H₂O** in the virtual keyboard for isotopes, elements, counts, charges, arrows (reaction, equilibrium, resonance, with conditions), gas and precipitate arrows, states and common constants.
+- mhchem's `\ce{…}` and `\pu{…}` (for example `\ce{2H2 + O2 -> 2H2O}`) are copied as MathML. Before, MathLive drew them but Copy MathML left them out.
+- Reading an image of chemistry: element symbols are upright, and a symbol in isotope notation that isn't an element is corrected when one letter was clearly misread (³Hc becomes ³He; an atomic number decides between lookalikes).
+
+### Fixed
+
+- Isotopes and other left scripts ({}^{3}He, {}_{92}^{235}U, {}_nC_r) are copied as `<mmultiscripts>` prescripts. Word showed an empty box for the old empty base.
+- `\longrightarrow`, `\longleftarrow` and `\longleftrightarrow` in copied MathML: the arrow was lost and took the next symbol with it.
+- `\xrightarrow[below]{above}`, `\xleftrightarrow` and `\xrightleftharpoons` keep their arrows and labels in copied MathML, and import back.
+- Math inside text from an image (`\text{$…$}`) becomes plain math, and text keeps its space after a variable (`x\text{ be the number}`).
+- With a MathML prefix, `<none/>` gets it too.
+
 ## 1.3.2 - 2026-10-13
 
 Run `npm install` after updating to this version.
