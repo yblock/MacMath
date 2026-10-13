@@ -12,7 +12,7 @@ Run `npm install` after updating to this version: it adds mhchem's parser.
 
 - A chemistry keyboard: choose **H₂O** in the virtual keyboard for isotopes, elements, counts, charges, arrows (reaction, equilibrium, resonance, with conditions), gas and precipitate arrows, states and common constants.
 - mhchem's `\ce{…}` and `\pu{…}` (for example `\ce{2H2 + O2 -> 2H2O}`) are copied as MathML. Before, MathLive drew them but Copy MathML left them out.
-- Reading an image of chemistry: element symbols are upright, and a symbol in isotope notation that isn't an element is corrected when one letter was clearly misread (³Hc becomes ³He; an atomic number decides between lookalikes).
+- Reading an image of chemistry: element symbols are upright, and a symbol in isotope notation that isn't an element is corrected when one letter was clearly misread (³Hc becomes ³He; an atomic number decides between lookalikes). Scripts the model puts inside `\mathrm{}` move out of it (`\mathrm{^{14}_{6}C}` becomes `{}^{14}_{6}\mathrm{C}`). On 25 rendered chemistry formulas with qwen2.5vl:7b: 25/25 (was 24/25), and 9/25 on low-quality copies (was 7/25).
 
 ### Fixed
 

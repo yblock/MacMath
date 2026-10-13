@@ -450,7 +450,28 @@ function cleanLatex(text) {
       break;
     }
   }
-  return fixIsotopeSymbols(simplifyBraces(tidyEnvironments(tidyLatex(unwrapTextMath(latex)))));
+  return fixIsotopeSymbols(scriptsOutOfMathrm(simplifyBraces(tidyEnvironments(tidyLatex(unwrapTextMath(latex))))));
+}
+
+// Models put chemistry's scripts inside \mathrm: \mathrm{^{14}_{6}C}, \mathrm{H_{2}O}, even
+// \mathrm{^{131I}}. Only the letters are upright: {}^{14}_{6}\mathrm{C}, \mathrm{H}_{2}\mathrm{O}
+function scriptsOutOfMathrm(latex) {
+  const scripts = String.raw`(?:[_^](?:\{[^{}]*\}|[0-9a-zA-Z+-]))*`;
+  const leading = new RegExp(`^${scripts}`);
+  const piece = new RegExp(`([A-Za-z]+)(${scripts})`, 'y');
+  return latex.replace(/\\mathrm\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g, (match, inside) => {
+    if (!/[_^]/.test(inside)) return match;
+    // The mass number ran into the symbol: ^{131I}
+    const merged = inside.match(/^\^\{(\d+)([A-Z][a-z]?)\}$/);
+    if (merged) return `{}^{${merged[1]}}\\mathrm{${merged[2]}}`;
+    const before = inside.match(leading)[0];
+    let out = before ? `{}${before}` : '';
+    piece.lastIndex = before.length;
+    let part;
+    while (piece.lastIndex < inside.length && (part = piece.exec(inside))) out += `\\mathrm{${part[1]}}${part[2]}`;
+    // Anything else inside (m/s^{2}) stays as it was
+    return piece.lastIndex === inside.length && part ? out : match;
+  });
 }
 
 // Element symbols by atomic number (index + 1)
