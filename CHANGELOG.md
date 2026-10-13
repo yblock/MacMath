@@ -22,6 +22,8 @@ Run `npm install` after updating to this version: it adds mhchem's parser.
 - Math inside text from an image (`\text{$…$}`) becomes plain math, and text keeps its space after a variable (`x\text{ be the number}`).
 - With a MathML prefix, `<none/>` gets it too.
 - `\phantom`, `\hphantom` and `\vphantom` are copied as `<mphantom>` (with an `<mpadded>` of no height and depth, or no width, for `\hphantom` and `\vphantom`). Before, Copy MathML left them out, so anything aligned with phantoms lost its spacing. Importing MathML reads them back as phantoms; before, their contents became visible.
+- Capital Greek letters are upright in copied MathML (`mathvariant="normal"`), as in LaTeX. Word and browsers drew a lone `<mi>Δ</mi>` in italic, so ΔH, ΔG° and the Δ over a reaction arrow looked wrong. `\mathit{\Delta}` stays italic and imports back as `\mathit{\Delta}`.
+- `\varDelta`, `\varOmega` and the other italic capital Greek letters are copied to MathML (as `\mathit{\Delta}`). Before, they were left out, and Copy MathML of `\varDelta` alone copied nothing.
 
 ## 1.3.2 - 2026-10-13
 

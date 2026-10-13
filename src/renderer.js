@@ -621,6 +621,8 @@ window.addEventListener('DOMContentLoaded', () => {
     [/\\longrightarrow(?![a-zA-Z])/g, '{\\text{MacMathLongRightArrow}}'],
     [/\\longleftarrow(?![a-zA-Z])/g, '{\\text{MacMathLongLeftArrow}}'],
     [/\\longleftrightarrow(?![a-zA-Z])/g, '{\\text{MacMathLongLeftRightArrow}}'],
+    // Italic capital Greek (\varDelta) comes out as nothing
+    [/\\var(Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega)(?![a-zA-Z])/g, '\\mathit{\\$1}'],
     // \pmod and \bmod come out as errors, \mathbin{…} and the like as nothing
     [/\\pmod\s*(\{[^{}]*\}|\\[a-zA-Z]+|\S)/g, '\\quad(\\operatorname{mod}\\,$1)'],
     [/\\bmod(?![a-zA-Z])/g, '\\operatorname{mod}'],
@@ -748,6 +750,8 @@ window.addEventListener('DOMContentLoaded', () => {
   // Elements with a fixed number of children, and that number
   const ARITY = { mfrac: 2, mroot: 2, msub: 2, msup: 2, msubsup: 3, munder: 2, mover: 2, munderover: 3 };
   const isInvisible = (el) => el?.localName === 'mo' && INVISIBLE_OPERATORS.has(el.textContent);
+  // Α to Ω
+  const CAPITAL_GREEK = /^[\u0391-\u03A9]$/;
 
   // Fixes MathLive's serializer output that is invalid or means something else
   function repairMathML(math, operator) {
@@ -816,6 +820,11 @@ window.addEventListener('DOMContentLoaded', () => {
       if (isInvisible(mi.previousElementSibling)) mi.previousElementSibling.remove();
       if (isInvisible(mi.nextElementSibling)) mi.nextElementSibling.remove();
       mi.replaceWith(operator(bar));
+    }
+    // A one-letter <mi> is italic in MathML (and in Word), but LaTeX draws capital Greek upright:
+    // \Delta H. Bold, \mathit{\Delta} and \varDelta already have a mathvariant.
+    for (const mi of math.querySelectorAll('mi')) {
+      if (CAPITAL_GREEK.test(mi.textContent) && !mi.closest('[mathvariant]')) mi.setAttribute('mathvariant', 'normal');
     }
   }
 
@@ -921,8 +930,6 @@ window.addEventListener('DOMContentLoaded', () => {
       .replace(/\{\\vphantom\{A\}\}(?=[_^])/g, '')
       .replace(/\\smash\[[tb]\]\{([^{}]*)\}/g, '$1')
       .replace(/\\llap\{([^{}]*)\}/g, '$1')
-      // \mathrm{\Delta} over an arrow: capital Greek is upright already
-      .replace(/\\mathrm\{(\\[A-Z][a-z]+)\}/g, '$1')
       .replace(/\\[vh]phantom\{[^{}]*\}/g, '')
       .replace(/\\m(kern|skip)-?[\d.]+mu\s*/g, '')
       // {}+{}: empty groups that make + a binary operator
@@ -1733,6 +1740,9 @@ window.addEventListener('DOMContentLoaded', () => {
     const latex = tokenToLatex(text);
     // Operators stay regular, as with \mathbf in LaTeX and on export
     const variant = node.localName === 'mo' ? null : mathvariantOf(node) ?? unicodeBold;
+    // Capital Greek is upright already (export writes it as mathvariant="normal"), so only an
+    // italic one needs a command
+    if (node.localName === 'mi' && variant === 'italic' && CAPITAL_GREEK.test(text)) return `\\mathit{${latex.trim()}}`;
     const letters = /^[A-Za-z0-9]+$/.test(text);
     if (letters && VARIANT_COMMANDS[variant] && !(variant === 'normal' && node.localName !== 'mi')) {
       return `${VARIANT_COMMANDS[variant]}{${text}}`;
