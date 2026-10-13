@@ -4,6 +4,18 @@ All notable changes to MacMath. Versions match the `version` in `package.json`.
 
 **Updating?** Get the latest code, then run `npm install` before `npm start` or `npm run build`. See [Updating MacMath](README.md#updating-macmath).
 
+## 1.3.1 - 2026-10-13
+
+Run `npm install` after updating to this version.
+
+### Security
+
+- Updated MathLive to 0.111.1, which fixes cross-site scripting issues in how it renders LaTeX (`\enclose`, `\href`, `\htmlData`, and colors and other style values). LaTeX pasted or imported into MacMath could have run script in the editor window.
+
+### Fixed
+
+- In copied MathML, `\bbox` backgrounds have their color, and `\enclose{box}` keeps its border options (from MathLive 0.111.1).
+
 ## 1.3.0 - 2026-10-13
 
 ### Added

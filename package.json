@@ -1,7 +1,7 @@
 {
   "name": "macmath",
-  "version": "1.3.0",
-  "description": "macOS menu bar app for math expressions \u2014 copy as LaTeX or MathML",
+  "version": "1.3.1",
+  "description": "macOS menu bar app for math expressions — copy as LaTeX or MathML",
   "main": "main.js",
   "author": "Yblock",
   "license": "MIT",
@@ -20,6 +20,6 @@
     "electron-builder": "^26.15.3"
   },
   "dependencies": {
-    "mathlive": "^0.111.0"
+    "mathlive": "^0.111.1"
   }
 }
