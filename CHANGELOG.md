@@ -4,6 +4,18 @@ All notable changes to MacMath. Versions match the `version` in `package.json`.
 
 **Updating?** Get the latest code, then run `npm install` before `npm start` or `npm run build`. See [Updating MacMath](README.md#updating-macmath).
 
+## 1.3.2 - 2026-10-13
+
+Run `npm install` after updating to this version.
+
+### Security
+
+- Updated Electron from 44.5.1 to 44.7.1, which includes security fixes from Chromium (152.0.7977.149), V8, Skia, ANGLE and WebRTC.
+
+### Fixed
+
+- A rare crash at launch when macOS refused to register MacMath for sleep and wake notifications (from Electron 44.6.0).
+
 ## 1.3.1 - 2026-10-13
 
 Run `npm install` after updating to this version.
