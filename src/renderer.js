@@ -549,8 +549,9 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // MathLive's MathML serializer drops some things: \underline and \overline
   // along with their contents, the bold of digits, Greek letters and text
-  // (\mathbf{2}, \boldsymbol{\alpha}, \textbf{hi}), and the base of stretchy
-  // arrows and braces (\overrightarrow{AB}, \underbrace{a+b}, \xrightarrow{f}).
+  // (\mathbf{2}, \boldsymbol{\alpha}, \textbf{hi}), the base of stretchy
+  // arrows and braces (\overrightarrow{AB}, \underbrace{a+b}, \xrightarrow{f}),
+  // and \phantom, \hphantom and \vphantom with their contents.
   // Each of these commands is wrapped in \underset/\overset with a marker,
   // which MathLive does serialize, and the marker is then turned into the right MathML.
   const MATHML_NS = 'http://www.w3.org/1998/Math/MathML';
@@ -576,6 +577,13 @@ window.addEventListener('DOMContentLoaded', () => {
     MacMathLongLeftArrow: '\u27F5',
     MacMathLongLeftRightArrow: '\u27F7',
   };
+  // Marker -> the <mpadded> attributes inside its <mphantom>: \hphantom has no height or depth,
+  // \vphantom no width (how Word's mathml2omml.xsl reads a smashed phantom)
+  const PHANTOM_MARKERS = {
+    MacMathPhantom: null,
+    MacMathHPhantom: { height: '0', depth: '0' },
+    MacMathVPhantom: { width: '0' },
+  };
   // The marker is the script, the argument the base: \underset{\text{marker}}{{argument}}.
   // For \xrightarrow the argument is the script over a marker arrow.
   const script = (standIn, marker) => [`${standIn}{\\text{${marker}}}{{`, '}}'];
@@ -590,6 +598,10 @@ window.addEventListener('DOMContentLoaded', () => {
     { command: '\\xleftarrow', wrap: ['\\overset{', '}{\\text{MacMathLeftArrow}}'] },
     { command: '\\xleftrightarrow', wrap: ['\\overset{', '}{\\text{MacMathLeftRightArrow}}'] },
     { command: '\\xrightleftharpoons', wrap: ['\\overset{', '}{\\text{MacMathRightLeftHarpoons}}'] },
+    // \hphantom and \vphantom first: \phantom{ is also found inside them
+    { command: '\\hphantom', wrap: script('\\underset', 'MacMathHPhantom') },
+    { command: '\\vphantom', wrap: script('\\underset', 'MacMathVPhantom') },
+    { command: '\\phantom', wrap: script('\\underset', 'MacMathPhantom') },
     // Font commands stay inside the marker so MathLive still renders them
     ...['\\mathbf', '\\boldsymbol', '\\bm', '\\textbf'].map((command) => (
       { command, wrap: script('\\underset', 'MacMathBold'), keep: true }
@@ -713,6 +725,19 @@ window.addEventListener('DOMContentLoaded', () => {
           stacked.append(...parent.childNodes);
           parent.replaceWith(stacked);
         }
+      } else if (name in PHANTOM_MARKERS) {
+        const phantom = doc.createElementNS(MATHML_NS, 'mphantom');
+        // \phantom{} has no base
+        const content = wrapper.firstElementChild === marker ? [] : [wrapper.firstElementChild];
+        if (PHANTOM_MARKERS[name]) {
+          const padded = doc.createElementNS(MATHML_NS, 'mpadded');
+          for (const [attribute, value] of Object.entries(PHANTOM_MARKERS[name])) padded.setAttribute(attribute, value);
+          padded.append(...content);
+          phantom.append(padded);
+        } else {
+          phantom.append(...content);
+        }
+        wrapper.replaceWith(phantom);
       }
     }
     repairMathML(math, operator);
@@ -1302,9 +1327,17 @@ window.addEventListener('DOMContentLoaded', () => {
       case 'math':
       case 'mrow':
       case 'mstyle':
-      case 'mpadded':
       case 'mtd':
         return rowLatex(node);
+
+      case 'mphantom':
+        return phantomLatex(node);
+
+      case 'mpadded':
+        // The size of a phantom can also be set from outside: <mpadded width="0"><mphantom>
+        return elements.length === 1 && elements[0].localName === 'mphantom'
+          ? phantomLatex(elements[0], node)
+          : rowLatex(node);
 
       case 'mi':
       case 'mn':
@@ -1465,6 +1498,19 @@ window.addEventListener('DOMContentLoaded', () => {
     };
     const before = scripts(pre);
     return `${before ? `{}${before}` : ''}${base ? convertNode(base) : ''}${scripts(post)}`;
+  }
+
+  // <mphantom> is \phantom. An <mpadded> with no height and depth inside it (or around it) makes
+  // it \hphantom, and one with no width \vphantom.
+  function phantomLatex(phantom, outer = null) {
+    const elements = [...phantom.children].filter((el) => !isInvisible(el));
+    const inner = elements.length === 1 && elements[0].localName === 'mpadded' ? elements[0] : null;
+    const content = rowLatex(inner ?? phantom);
+    const padded = outer ?? inner;
+    const zero = (attribute) => padded?.hasAttribute(attribute) && parseFloat(padded.getAttribute(attribute)) === 0;
+    if (zero('height') && zero('depth') && !zero('width')) return `\\hphantom{${content}}`;
+    if (zero('width') && !zero('height') && !zero('depth')) return `\\vphantom{${content}}`;
+    return `\\phantom{${content}}`;
   }
 
   function tableLatex(table, environment) {
