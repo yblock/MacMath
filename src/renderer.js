@@ -297,28 +297,53 @@ window.addEventListener('DOMContentLoaded', () => {
     (binding) => !/^cmd\+\[(Return|Enter)\]$/.test(binding.key)
   );
 
-  // Cmd+B / Cmd+U: capture phase, so MathLive never sees a handled keystroke
+  // Cmd+B / Cmd+I / Cmd+U: capture phase, so MathLive never sees a handled keystroke
   mathField.addEventListener('keydown', (e) => {
     if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
     const key = e.key.toLowerCase();
-    const handled = key === 'b' ? toggleBold() : key === 'u' ? toggleUnderline() : false;
+    const handled = key === 'b' ? toggleBold()
+      : key === 'i' ? toggleUpright()
+      : key === 'u' ? toggleUnderline()
+      : false;
     if (handled) {
       e.preventDefault();
       e.stopPropagation();
     }
   }, true);
 
+  // Math bold is a variant style (\mathbf); text bold is a font series (\textbf)
   function toggleBold() {
+    return toggleStyle({ variantStyle: 'bold' }, { fontSeries: 'b' });
+  }
+
+  // Math letters are italic, so Cmd+I switches them to upright (\mathrm) and back;
+  // text is upright, so there it toggles italic (\textit)
+  function toggleUpright() {
+    // \mathbf is already upright, and MathLive's bold italic loses its bold in MathML
+    if (!textSelected() && mathField.queryStyle({ variantStyle: 'bold' }) === 'all') return true;
+    return toggleStyle({ variantStyle: 'up' }, { fontShape: 'it' });
+  }
+
+  function toggleStyle(mathStyle, textStyle) {
     if (mathField.mode === 'latex') return false;
-    // Math bold is a variant style (\mathbf); text bold is a font series (\textbf)
-    const bold = mathField.mode === 'text' ? { fontSeries: 'b' } : { variantStyle: 'bold' };
-    if (mathField.selectionIsCollapsed && bold.variantStyle && mathField.queryStyle(bold) === 'all') {
+    const style = textSelected() ? textStyle : mathStyle;
+    if (mathField.selectionIsCollapsed && style.variantStyle && mathField.queryStyle(style) === 'all') {
       // With no selection, applyStyle can turn variantStyle on but never off
       mathField.executeCommand(['applyStyle', { variantStyle: '' }]);
     } else {
-      mathField.executeCommand(['applyStyle', bold]);
+      mathField.executeCommand(['applyStyle', style]);
     }
     return true;
+  }
+
+  // In text, or a selection that is all text: mathField.mode says 'math' for a selection
+  // made inside \text{…}, so check the selected LaTeX too
+  function textSelected() {
+    if (mathField.mode === 'text') return true;
+    if (mathField.selectionIsCollapsed) return false;
+    const selected = mathField.getValue(mathField.selection, 'latex');
+    const open = selected.match(/^\\text[a-z]*\{/)?.[0].length - 1;
+    return open > 0 && findClosingBrace(selected, open) === selected.length - 1;
   }
 
   function toggleUnderline() {
@@ -437,20 +462,57 @@ window.addEventListener('DOMContentLoaded', () => {
   // --- MathML export ---
 
   // MathLive's MathML serializer drops some things: \underline and \overline
-  // along with their contents, and the bold of digits, Greek letters and text
-  // (\mathbf{2}, \boldsymbol{\alpha}, \textbf{hi}). Each of these commands is
-  // wrapped in \underset/\overset with a marker script, which MathLive does
-  // serialize, and the marker is then turned into the right MathML.
+  // along with their contents, the bold of digits, Greek letters and text
+  // (\mathbf{2}, \boldsymbol{\alpha}, \textbf{hi}), and the base of stretchy
+  // arrows and braces (\overrightarrow{AB}, \underbrace{a+b}, \xrightarrow{f}).
+  // Each of these commands is wrapped in \underset/\overset with a marker,
+  // which MathLive does serialize, and the marker is then turned into the right MathML.
   const MATHML_NS = 'http://www.w3.org/1998/Math/MathML';
-  const BOLD_MARKER = 'MacMathBold';
-  const LINE_MARKERS = new Set(['MacMathUnderline', 'MacMathOverline']);
+  // Marker -> the mathvariant its tokens get
+  const VARIANT_MARKERS = { MacMathBold: 'bold', MacMathScript: 'script' };
+  // Marker -> the stretchy operator that replaces it
+  const STRETCHY_MARKERS = {
+    MacMathUnderline: '\u203E',
+    MacMathOverline: '\u203E',
+    MacMathOverRightArrow: '\u2192',
+    MacMathOverLeftArrow: '\u2190',
+    MacMathUnderbrace: '\u23DF',
+    MacMathOverbrace: '\u23DE',
+    MacMathRightArrow: '\u2192',
+    MacMathLeftArrow: '\u2190',
+  };
+  // The marker is the script, the argument the base: \underset{\text{marker}}{{argument}}.
+  // For \xrightarrow the argument is the script over a marker arrow.
+  const script = (standIn, marker) => [`${standIn}{\\text{${marker}}}{{`, '}}'];
   const MARKED_COMMANDS = [
-    { command: '\\underline', standIn: '\\underset', marker: 'MacMathUnderline' },
-    { command: '\\overline', standIn: '\\overset', marker: 'MacMathOverline' },
-    // Bold commands stay inside the marker so MathLive still renders them
+    { command: '\\underline', wrap: script('\\underset', 'MacMathUnderline') },
+    { command: '\\overline', wrap: script('\\overset', 'MacMathOverline') },
+    { command: '\\overrightarrow', wrap: script('\\overset', 'MacMathOverRightArrow') },
+    { command: '\\overleftarrow', wrap: script('\\overset', 'MacMathOverLeftArrow') },
+    { command: '\\underbrace', wrap: script('\\underset', 'MacMathUnderbrace') },
+    { command: '\\overbrace', wrap: script('\\overset', 'MacMathOverbrace') },
+    { command: '\\xrightarrow', wrap: ['\\overset{', '}{\\text{MacMathRightArrow}}'] },
+    { command: '\\xleftarrow', wrap: ['\\overset{', '}{\\text{MacMathLeftArrow}}'] },
+    // Font commands stay inside the marker so MathLive still renders them
     ...['\\mathbf', '\\boldsymbol', '\\bm', '\\textbf'].map((command) => (
-      { command, standIn: '\\underset', marker: BOLD_MARKER, keep: true }
+      { command, wrap: script('\\underset', 'MacMathBold'), keep: true }
     )),
+    { command: '\\mathcal', wrap: script('\\underset', 'MacMathScript'), keep: true },
+  ];
+  // Other LaTeX MathLive serializes wrongly, rewritten before serializing:
+  // {,} became a decimal point (1{,}000 -> 1.000), \widehat an "undefined" accent,
+  // \dots an error, \iff nothing
+  const COMMA_MARKER = 'MacMathComma';
+  const EXPORT_REWRITES = [
+    [/\{,\}/g, `\\text{${COMMA_MARKER}}`],
+    [/\\widehat(?![a-zA-Z])/g, '\\hat'],
+    [/\\widetilde(?![a-zA-Z])/g, '\\tilde'],
+    [/\\dots(?![a-zA-Z])/g, '\\ldots'],
+    [/\\iff(?![a-zA-Z])/g, '\\Longleftrightarrow'],
+    // \pmod and \bmod come out as errors, \mathbin{…} and the like as nothing
+    [/\\pmod\s*(\{[^{}]*\}|\\[a-zA-Z]+|\S)/g, '\\quad(\\operatorname{mod}\\,$1)'],
+    [/\\bmod(?![a-zA-Z])/g, '\\operatorname{mod}'],
+    [/\\math(bin|rel|op|ord|open|close|punct|inner)\s*\{/g, '{'],
   ];
 
   // Mathematical Alphanumeric Symbols used for bold, such as 𝐱, 𝛂 and 𝟐
@@ -491,12 +553,11 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   function serializeMathML() {
-    const latex = mathField.getValue('latex');
-    const commands = MARKED_COMMANDS.filter(({ command }) => latex.includes(`${command}{`));
-    if (commands.length === 0) return mathField.getValue('math-ml');
-
-    let marked = latex;
-    for (const { command, standIn, marker, keep } of commands) {
+    // From the LaTeX, not getValue('math-ml'): the live field leaves out styles applied with
+    // applyStyle (Cmd+I's \mathrm) until the expression is parsed again
+    let marked = mathField.getValue('latex');
+    for (const [pattern, replacement] of EXPORT_REWRITES) marked = marked.replace(pattern, replacement);
+    for (const { command, wrap: [before, after], keep } of MARKED_COMMANDS) {
       let from = 0;
       let start;
       while ((start = marked.indexOf(`${command}{`, from)) !== -1) {
@@ -504,12 +565,11 @@ window.addEventListener('DOMContentLoaded', () => {
         const close = findClosingBrace(marked, open);
         if (close === -1) break;
         const body = keep ? marked.slice(start, close + 1) : marked.slice(open + 1, close);
-        // The extra braces stop MathLive from reading a leading \frac's
+        // The extra braces in `before` stop MathLive from reading a leading \frac's
         // numerator and denominator as the under/over scripts
-        const prefix = `${standIn}{\\text{${marker}}}{{`;
-        marked = `${marked.slice(0, start)}${prefix}${body}}}${marked.slice(close + 1)}`;
+        marked = `${marked.slice(0, start)}${before}${body}${after}${marked.slice(close + 1)}`;
         // Keep scanning inside the argument, so nested commands are marked too
-        from = start + prefix.length + (keep ? command.length + 1 : 0);
+        from = start + before.length + (keep ? command.length + 1 : 0);
       }
     }
 
@@ -519,31 +579,120 @@ window.addEventListener('DOMContentLoaded', () => {
       'text/html'
     );
     const math = doc.querySelector('math');
-    for (const script of math.querySelectorAll('munder > mtext:last-child, mover > mtext:last-child')) {
-      const wrapper = script.parentElement;
-      if (script.textContent === BOLD_MARKER) {
+    const operator = (text) => {
+      const mo = doc.createElementNS(MATHML_NS, 'mo');
+      mo.textContent = text;
+      return mo;
+    };
+    for (const marker of math.querySelectorAll('munder > mtext:last-child, mover > mtext:last-child, mover > mtext:first-child')) {
+      const wrapper = marker.parentElement;
+      const name = marker.textContent;
+      if (VARIANT_MARKERS[name]) {
         const base = wrapper.firstElementChild;
-        markBold(base);
+        markVariant(base, VARIANT_MARKERS[name]);
         wrapper.replaceWith(base);
-      } else if (LINE_MARKERS.has(script.textContent)) {
-        // A stretchy line accent, the form KaTeX emits
-        const line = doc.createElementNS(MATHML_NS, 'mo');
-        line.setAttribute('stretchy', 'true');
-        line.textContent = '\u203E';
-        wrapper.setAttribute(wrapper.localName === 'munder' ? 'accentunder' : 'accent', 'true');
-        script.replaceWith(line);
+      } else if (STRETCHY_MARKERS[name]) {
+        const stretchy = operator(STRETCHY_MARKERS[name]);
+        stretchy.setAttribute('stretchy', 'true');
+        if (/line|Arrow$/.test(name) && marker !== wrapper.firstElementChild) {
+          // Lines and arrows are accents, the form KaTeX emits
+          wrapper.setAttribute(wrapper.localName === 'munder' ? 'accentunder' : 'accent', 'true');
+        }
+        marker.replaceWith(stretchy);
+        // \underbrace{a+b}_{n}: the label goes under the brace, not beside it
+        const parent = wrapper.parentElement;
+        if (/brace$/.test(name) && parent?.firstElementChild === wrapper && /^ms(ub|up)$/.test(parent.localName)) {
+          const stacked = doc.createElementNS(MATHML_NS, parent.localName === 'msub' ? 'munder' : 'mover');
+          stacked.append(...parent.childNodes);
+          parent.replaceWith(stacked);
+        }
       }
     }
+    repairMathML(math, operator);
     return math.innerHTML;
   }
 
-  // Bold letters, digits and text (operators stay as they are, like in LaTeX).
+  const INVISIBLE_OPERATORS = new Set(['\u2061', '\u2062', '\u2063', '\u2064']);
+  // Elements with a fixed number of children, and that number
+  const ARITY = { mfrac: 2, mroot: 2, msub: 2, msup: 2, msubsup: 3, munder: 2, mover: 2, munderover: 3 };
+  const isInvisible = (el) => el?.localName === 'mo' && INVISIBLE_OPERATORS.has(el.textContent);
+
+  // Fixes MathLive's serializer output that is invalid or means something else
+  function repairMathML(math, operator) {
+    // 1{,}000 is one number
+    for (const comma of [...math.querySelectorAll('mtext')].filter((t) => t.textContent === COMMA_MARKER)) {
+      const before = comma.previousElementSibling;
+      const after = comma.nextElementSibling;
+      if (before?.localName === 'mn' && after?.localName === 'mn') {
+        before.textContent += `,${after.textContent}`;
+        after.remove();
+        comma.remove();
+      } else {
+        comma.replaceWith(operator(','));
+      }
+    }
+    // Invisible operators inside scripts and fractions (f'' gets f, U+2061, primes), and
+    // function application after a single letter that isn't applied to anything (g=9.8)
+    for (const mo of [...math.querySelectorAll('mo')].filter(isInvisible)) {
+      const parent = mo.parentElement;
+      const previous = mo.previousElementSibling;
+      const next = mo.nextElementSibling;
+      const strayApplication = mo.textContent === '\u2061' && previous?.localName === 'mi' &&
+        previous.textContent.length === 1 && !/^[([{]/.test(next?.firstElementChild?.textContent ?? next?.textContent ?? '');
+      if (ARITY[parent.localName] || strayApplication) mo.remove();
+    }
+    // Scripts with no base ({}^{14}C, {}_nC_r) get an empty one
+    for (const [name, count] of Object.entries(ARITY)) {
+      for (const el of math.querySelectorAll(name)) {
+        if (el.children.length === count - 1) el.prepend(el.ownerDocument.createElementNS(MATHML_NS, 'mrow'));
+      }
+    }
+    // \binom writes a table with no cells (<mtr><mi>n</mi></mtr>); MathML's binomial is a
+    // fraction with no line. Other tables get their missing cells.
+    for (const table of math.querySelectorAll('mtable')) {
+      const rows = [...table.children];
+      if (!rows.some((row) => [...row.children].some((c) => c.localName !== 'mtd'))) continue;
+      if (rows.length === 2 && rows.every((row) => row.children.length === 1)) {
+        const fraction = table.ownerDocument.createElementNS(MATHML_NS, 'mfrac');
+        fraction.setAttribute('linethickness', '0');
+        fraction.append(...rows.map((row) => row.firstElementChild));
+        table.replaceWith(fraction);
+        continue;
+      }
+      for (const row of rows) {
+        for (const cell of [...row.children].filter((c) => c.localName !== 'mtd')) {
+          const mtd = row.ownerDocument.createElementNS(MATHML_NS, 'mtd');
+          cell.replaceWith(mtd);
+          mtd.append(cell);
+        }
+      }
+    }
+    // \mathring writes its accent as a decimal code point (<mo>730</mo>)
+    for (const mo of math.querySelectorAll('mover > mo:last-child')) {
+      if (/^\d{3,}$/.test(mo.textContent)) mo.textContent = String.fromCodePoint(Number(mo.textContent));
+    }
+    // \left\| writes its fence as LaTeX source (<mo>\|</mo>)
+    for (const mo of math.querySelectorAll('mo')) {
+      const fence = { '\\|': '\u2016', '\\{': '{', '\\}': '}' }[mo.textContent];
+      if (fence) mo.textContent = fence;
+    }
+    // | and \| are written as identifiers (<mi>∣</mi>, with invisible times around them)
+    for (const mi of math.querySelectorAll('mi')) {
+      const bar = { '\u2223': '|', '\u2225': '\u2016' }[mi.textContent];
+      if (!bar) continue;
+      if (isInvisible(mi.previousElementSibling)) mi.previousElementSibling.remove();
+      if (isInvisible(mi.nextElementSibling)) mi.nextElementSibling.remove();
+      mi.replaceWith(operator(bar));
+    }
+  }
+
+  // Bold or script letters, digits and text (operators stay as they are, like in LaTeX).
   // MathLive already writes \bm{x} as 𝐱, which needs no attribute.
-  function markBold(element) {
+  function markVariant(element, variant) {
     const tokens = element.matches('mi, mn, mtext') ? [element] : element.querySelectorAll('mi, mn, mtext');
     for (const token of tokens) {
       if (!token.hasAttribute('mathvariant') && !unicodeBoldStyle(token.textContent)) {
-        token.setAttribute('mathvariant', 'bold');
+        token.setAttribute('mathvariant', variant);
       }
     }
   }
@@ -834,207 +983,331 @@ window.addEventListener('DOMContentLoaded', () => {
       if (doc.querySelector('parsererror')) return null;
     }
 
-    return convertNode(doc.documentElement);
+    return convertNode(doc.documentElement).trim();
   }
 
   function convertNode(node) {
     if (node.nodeType === Node.TEXT_NODE) {
-      return node.textContent.trim();
+      // MathLive writes \ (a normal space) as a bare &nbsp;
+      if (/^ +$/.test(node.textContent)) return '\\ ';
+      const text = node.textContent.trim();
+      return text ? tokenToLatex(text) : '';
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return '';
 
     const tag = node.localName;
-    const children = Array.from(node.childNodes);
-
-    function childLatex() {
-      return children.map(convertNode).join('');
-    }
-
-    function childAt(i) {
-      const elements = Array.from(node.children);
-      return elements[i] ? convertNode(elements[i]) : '';
-    }
+    // Child elements, without invisible operators (MathLive puts one inside f''s <msup>)
+    const elements = Array.from(node.children).filter((el) => !isInvisible(el));
+    const childAt = (i) => (elements[i] ? convertNode(elements[i]) : '');
+    // A script needs something to attach to: {}^{14}C
+    const baseAt = (i) => childAt(i) || '{}';
 
     switch (tag) {
       case 'math':
       case 'mrow':
       case 'mstyle':
       case 'mpadded':
-        return childLatex();
+      case 'mtd':
+        return rowLatex(node);
 
       case 'mi':
       case 'mn':
       case 'mo':
         return tokenElementToLatex(node);
 
-      case 'mtext':
-        return isBold(mathvariantOf(node))
-          ? `\\textbf{${node.textContent}}`
-          : `\\text{${node.textContent}}`;
+      case 'mtext': {
+        // Characters LaTeX reads as syntax, even in text
+        const text = node.textContent.replace(/[{}$%#&_]/g, '\\$&').replace(/\\(?![{}$%#&_])/g, '\\textbackslash ');
+        return isBold(mathvariantOf(node)) ? `\\textbf{${text}}` : `\\text{${text}}`;
+      }
 
       case 'mspace':
-        return '\\;';
+        return spaceToLatex(node.getAttribute('width'));
 
       case 'mfrac':
-        return `\\frac{${childAt(0)}}{${childAt(1)}}`;
+        return node.getAttribute('linethickness') === '0'
+          ? `\\genfrac{}{}{0pt}{}{${childAt(0)}}{${childAt(1)}}`
+          : `\\frac{${childAt(0)}}{${childAt(1)}}`;
 
       case 'msqrt':
-        return `\\sqrt{${childLatex()}}`;
+        return `\\sqrt{${rowLatex(node)}}`;
 
       case 'mroot':
         return `\\sqrt[${childAt(1)}]{${childAt(0)}}`;
 
-      case 'msup':
-        return `${childAt(0)}^{${childAt(1)}}`;
+      case 'msup': {
+        const script = childAt(1);
+        // f′ and f″ are primes, not a superscript
+        return /^'+$/.test(script) ? `${baseAt(0)}${script}` : `${baseAt(0)}^{${script}}`;
+      }
 
       case 'msub':
-        return `${childAt(0)}_{${childAt(1)}}`;
+        return `${baseAt(0)}_{${childAt(1)}}`;
 
       case 'msubsup':
-        return `${childAt(0)}_{${childAt(1)}}^{${childAt(2)}}`;
+        return `${baseAt(0)}_{${childAt(1)}}^{${childAt(2)}}`;
 
       case 'munder': {
+        const [baseEl, underEl] = elements;
         const base = childAt(0);
-        const underEl = Array.from(node.children)[1];
-        const underText = underEl ? underEl.textContent.trim() : '';
-        if (underText === '\u203E' || underText === '\u0332' || underText === '_')
+        const underText = underEl?.textContent.trim() ?? '';
+        if (underText === '‾' || underText === '̲' || underText === '_')
           return `\\underline{${base}}`;
-        // Limits and big operators take a subscript: \lim_{x\to0}, not \underset{x\to0}{\lim}
-        if (/^\\(lim|max|min|sup|inf|sum|prod)\s*$/.test(base))
+        if (underText === '⏟') return `\\underbrace{${base}}`;
+        // Limits, big operators and braces take a subscript: \lim_{x\to0}, not \underset{x\to0}{\lim}
+        if (/^\\(lim|max|min|sup|inf|sum|prod|coprod|bigcup|bigcap|bigoplus|bigotimes|bigvee|bigwedge)\s*$/.test(base) ||
+          isStretched(baseEl, 'munder', '⏟'))
           return `${base.trim()}_{${childAt(1)}}`;
         return `\\underset{${childAt(1)}}{${base}}`;
       }
 
-      case 'mover': {
-        const base = childAt(0);
-        const overEl = Array.from(node.children)[1];
-        const overText = overEl ? overEl.textContent.trim() : '';
-        if (overText === '\u0302' || overText === '^' || overText === '\u005E')
-          return `\\hat{${base}}`;
-        if (overText === '\u0304' || overText === '\u00AF' || overText === '\u0305' || overText === '\u203E')
-          return `\\overline{${base}}`;
-        if (overText === '\u2192' || overText === '\u20D7')
-          return `\\vec{${base}}`;
-        if (overText === '\u02DC' || overText === '~')
-          return `\\tilde{${base}}`;
-        if (overText === '\u02D9' || overText === '.')
-          return `\\dot{${base}}`;
-        return `\\overset{${convertNode(overEl)}}{${base}}`;
-      }
+      case 'mover':
+        return overLatex(elements, childAt);
 
       case 'munderover': {
-        const base = childAt(0);
-        const under = childAt(1);
-        const over = childAt(2);
-        return `${base}_{${under}}^{${over}}`;
+        const arrow = { '→': '\\xrightarrow', '←': '\\xleftarrow' }[elements[0]?.textContent.trim()];
+        if (arrow && elements[0].localName === 'mo') return `${arrow}[${childAt(1)}]{${childAt(2)}}`;
+        return `${childAt(0)}_{${childAt(1)}}^{${childAt(2)}}`;
       }
 
+      case 'mmultiscripts':
+        return multiscriptsLatex(node);
+
       case 'mtable':
-        return convertTable(node);
-
-      case 'mtr':
-        return Array.from(node.children)
-          .map(convertNode)
-          .join(' & ');
-
-      case 'mtd':
-        return childLatex();
+        return tableLatex(node, 'matrix');
 
       case 'mfenced': {
-        const open = node.getAttribute('open') || '(';
-        const close = node.getAttribute('close') || ')';
-        return `\\left${open}${childLatex()}\\right${close}`;
+        const open = node.getAttribute('open') ?? '(';
+        const close = node.getAttribute('close') ?? ')';
+        if (elements.length === 1 && elements[0].localName === 'mtable') {
+          const environment = FENCE_ENVIRONMENTS[open]?.[0] ?? 'matrix';
+          return tableLatex(elements[0], environment === 'Bmatrix' && !close ? 'cases' : environment);
+        }
+        // Children are separated by commas unless separators says otherwise
+        const separators = [...(node.getAttribute('separators') ?? ',').replace(/\s/g, '')];
+        const inner = elements.map((el, i) => {
+          const separator = i ? separators[Math.min(i - 1, separators.length - 1)] ?? '' : '';
+          return tokenToLatex(separator) + convertNode(el);
+        }).join('');
+        return `\\left${fenceLatex(open)}${inner}\\right${fenceLatex(close)}`;
       }
 
       default:
-        return childLatex();
+        return rowLatex(node);
     }
   }
 
-  function convertTable(node) {
-    const rows = Array.from(node.children)
-      .filter(c => c.localName === 'mtr')
-      .map(convertNode)
-      .join(' \\\\ ');
-    return `\\begin{matrix} ${rows} \\end{matrix}`;
+  // The children of a row. A table between fences is a matrix environment: ( ) pmatrix,
+  // [ ] bmatrix, | | vmatrix, { } Bmatrix, and { alone cases. A fraction with no line in
+  // parentheses is \binom.
+  function rowLatex(node) {
+    const nodes = [...node.childNodes].filter((n) =>
+      n.nodeType === Node.ELEMENT_NODE ? !isInvisible(n) : /\S| /.test(n.textContent));
+    let out = '';
+    for (let i = 0; i < nodes.length; i++) {
+      const fenced = fencedLatex(nodes, i);
+      if (fenced) {
+        out += fenced.latex;
+        i += fenced.length - 1;
+      } else {
+        const piece = convertNode(nodes[i]);
+        // \quad b, not \quadb
+        out += /\\[a-zA-Z]+$/.test(out) && /^[a-zA-Z]/.test(piece) ? ` ${piece}` : piece;
+      }
+    }
+    return out;
   }
 
-  const MO_MAP = {
-    '\u00B1': '\\pm',
-    '\u00D7': '\\times',
-    '\u00F7': '\\div',
-    '\u2212': '-',
-    '\u2264': '\\leq',
-    '\u2265': '\\geq',
-    '\u2260': '\\neq',
-    '\u2248': '\\approx',
-    '\u221E': '\\infty',
-    '\u2208': '\\in',
-    '\u2209': '\\notin',
-    '\u2282': '\\subset',
-    '\u2283': '\\supset',
-    '\u2286': '\\subseteq',
-    '\u2287': '\\supseteq',
-    '\u222A': '\\cup',
-    '\u2229': '\\cap',
-    '\u2192': '\\to',
-    '\u2190': '\\leftarrow',
-    '\u21D2': '\\Rightarrow',
-    '\u21D0': '\\Leftarrow',
-    '\u2200': '\\forall',
-    '\u2203': '\\exists',
-    '\u2207': '\\nabla',
-    '\u2202': '\\partial',
-    '\u222B': '\\int',
-    '\u222C': '\\iint',
-    '\u222D': '\\iiint',
-    '\u2211': '\\sum',
-    '\u220F': '\\prod',
-    '\u2227': '\\land',
-    '\u2228': '\\lor',
-    '\u00AC': '\\neg',
-    '\u22C5': '\\cdot',
-    '\u2026': '\\ldots',
-    '\u22EF': '\\cdots',
-    '\u03B1': '\\alpha',
-    '\u03B2': '\\beta',
-    '\u03B3': '\\gamma',
-    '\u03B4': '\\delta',
-    '\u03B5': '\\epsilon',
-    '\u03B6': '\\zeta',
-    '\u03B7': '\\eta',
-    '\u03B8': '\\theta',
-    '\u03B9': '\\iota',
-    '\u03BA': '\\kappa',
-    '\u03BB': '\\lambda',
-    '\u03BC': '\\mu',
-    '\u03BD': '\\nu',
-    '\u03BE': '\\xi',
-    '\u03C0': '\\pi',
-    '\u03C1': '\\rho',
-    '\u03C3': '\\sigma',
-    '\u03C4': '\\tau',
-    '\u03C5': '\\upsilon',
-    '\u03C6': '\\phi',
-    '\u03C7': '\\chi',
-    '\u03C8': '\\psi',
-    '\u03C9': '\\omega',
-    '\u0393': '\\Gamma',
-    '\u0394': '\\Delta',
-    '\u0398': '\\Theta',
-    '\u039B': '\\Lambda',
-    '\u039E': '\\Xi',
-    '\u03A0': '\\Pi',
-    '\u03A3': '\\Sigma',
-    '\u03A6': '\\Phi',
-    '\u03A8': '\\Psi',
-    '\u03A9': '\\Omega',
-    // Invisible operators: function application, times, separator, plus
-    '\u2061': '',
-    '\u2062': '',
-    '\u2063': '',
-    '\u2064': '',
+  const FENCE_ENVIRONMENTS = {
+    '(': ['pmatrix', ')'],
+    '[': ['bmatrix', ']'],
+    '{': ['Bmatrix', '}'],
+    '|': ['vmatrix', '|'],
+    '∣': ['vmatrix', '∣'],
+    '‖': ['Vmatrix', '‖'],
+    '∥': ['Vmatrix', '∥'],
   };
+
+  function fencedLatex(nodes, i) {
+    const [open, inner, close] = nodes.slice(i, i + 3);
+    if (open?.localName !== 'mo' || !inner) return null;
+    const fence = FENCE_ENVIRONMENTS[open.textContent.trim()];
+    if (!fence) return null;
+    const [environment, closeText] = fence;
+    const closed = close?.localName === 'mo' && close.textContent.trim() === closeText;
+    if (inner.localName === 'mfrac' && inner.getAttribute('linethickness') === '0' && environment === 'pmatrix' && closed) {
+      const [top = '', bottom = ''] = [...inner.children].filter((el) => !isInvisible(el)).map(convertNode);
+      return { latex: `\\binom{${top}}{${bottom}}`, length: 3 };
+    }
+    if (inner.localName !== 'mtable') return null;
+    if (closed) return { latex: tableLatex(inner, environment), length: 3 };
+    return environment === 'Bmatrix' ? { latex: tableLatex(inner, 'cases'), length: 2 } : null;
+  }
+
+  // <mmultiscripts>: base, then subscript/superscript pairs after it, then <mprescripts/> and
+  // the pairs before it, such as an isotope: {}_{92}^{235}U
+  function multiscriptsLatex(node) {
+    const [base, ...rest] = [...node.children].filter((el) => !isInvisible(el));
+    const split = rest.findIndex((el) => el.localName === 'mprescripts');
+    const post = split < 0 ? rest : rest.slice(0, split);
+    const pre = split < 0 ? [] : rest.slice(split + 1);
+    const scripts = (elements) => {
+      let latex = '';
+      for (let i = 0; i < elements.length; i += 2) {
+        const [sub, sup] = [elements[i], elements[i + 1]].map((el) => (el && el.localName !== 'none' ? convertNode(el) : ''));
+        if (sub) latex += `_{${sub}}`;
+        if (sup) latex += `^{${sup}}`;
+      }
+      return latex;
+    };
+    const before = scripts(pre);
+    return `${before ? `{}${before}` : ''}${base ? convertNode(base) : ''}${scripts(post)}`;
+  }
+
+  function tableLatex(table, environment) {
+    const rows = [...table.children]
+      .filter((row) => row.localName === 'mtr' || row.localName === 'mlabeledtr')
+      .map((row) => [...row.children].map(convertNode).join('&'));
+    return `\\begin{${environment}}${rows.join('\\\\')}\\end{${environment}}`;
+  }
+
+  function fenceLatex(fence) {
+    if (!fence) return '.';
+    const commands = {
+      '{': '\\{', '}': '\\}', '‖': '\\|', '∥': '\\|', '∣': '|', '⟨': '\\langle ', '⟩': '\\rangle ',
+    };
+    return commands[fence] ?? fence;
+  }
+
+  // An element drawn with a stretched mark under or over it: <munder>…<mo>⏟</mo></munder>
+  function isStretched(element, tag, mark) {
+    return element?.localName === tag && element.lastElementChild?.textContent.trim() === mark;
+  }
+
+  // MathML space widths in em, and the LaTeX space for each
+  const SPACES = [[-1 / 6, '\\!'], [0, ''], [1 / 6, '\\,'], [2 / 9, '\\:'], [5 / 18, '\\;'], [1, '\\quad'], [2, '\\qquad']];
+  // MathML 2 named spaces, in eighteenths of an em
+  const NAMED_SPACES = {
+    veryverythinmathspace: 1, verythinmathspace: 2, thinmathspace: 3, mediummathspace: 4,
+    thickmathspace: 5, verythickmathspace: 6, veryverythickmathspace: 7,
+  };
+  const SPACE_UNITS = { em: 1, ex: 0.5, mu: 1 / 18, pt: 0.1, px: 1 / 16 };
+
+  // The LaTeX space closest to an <mspace> width (\, for 0.1667em, \quad for 1em)
+  function spaceToLatex(width) {
+    if (!width) return '';
+    const negative = width.startsWith('negative');
+    let em;
+    if (NAMED_SPACES[width.replace(/^negative/, '')]) {
+      em = (negative ? -1 : 1) * NAMED_SPACES[width.replace(/^negative/, '')] / 18;
+    } else {
+      const match = width.trim().match(/^(-?[\d.]+)\s*([a-z]*)$/);
+      if (!match) return '\;';
+      em = parseFloat(match[1]) * (SPACE_UNITS[match[2] || 'em'] ?? 1);
+    }
+    return SPACES.reduce((best, space) => (Math.abs(space[0] - em) < Math.abs(best[0] - em) ? space : best))[1];
+  }
+
+  // Accents, as the <mo> text MathLive writes -> LaTeX command, read from MathLive itself so an
+  // import gives back what export wrote. ACCENT_ALIASES covers what other tools write.
+  const ACCENT_COMMANDS = ['hat', 'bar', 'dot', 'ddot', 'check', 'breve', 'acute', 'grave', 'tilde', 'vec', 'mathring'];
+  const ACCENT_ALIASES = {
+    '^': '\\hat', '̂': '\\hat', 'ˆ': '\\hat', '̄': '\\bar', '~': '\\tilde', '̃': '\\tilde',
+    '̇': '\\dot', '.': '\\dot', '̈': '\\ddot', '→': '\\vec', '˚': '\\mathring',
+  };
+  let accentCommands = null;
+
+  function accentCommand(text) {
+    if (!accentCommands) {
+      accentCommands = new Map();
+      for (const name of ACCENT_COMMANDS) {
+        const match = MathLive.convertLatexToMathMl(`\\${name}{x}`).match(/<mo>([^<]+)<\/mo><\/mover>$/);
+        const char = match && decodeEntities(match[1]);
+        if (char && !accentCommands.has(char)) accentCommands.set(char, `\\${name}`);
+      }
+    }
+    return accentCommands.get(text) ?? ACCENT_ALIASES[text];
+  }
+
+  // <mover>: an accent, a line, arrow or brace over its base, or \xrightarrow's label
+  function overLatex(elements, childAt) {
+    const [baseEl, overEl] = elements;
+    const base = childAt(0);
+    const overText = overEl?.textContent.trim() ?? '';
+    // A line or arrow over more than one character stretches: \overline{AB}, \overrightarrow{AB}
+    const wide = overEl?.getAttribute('stretchy') === 'true' ||
+      !(baseEl?.matches('mi, mn, mo') && [...baseEl.textContent.trim()].length === 1);
+    const arrow = { '→': '\\xrightarrow', '←': '\\xleftarrow' }[baseEl?.textContent.trim()];
+    if (arrow && baseEl.localName === 'mo') return `${arrow}{${childAt(1)}}`;
+    if (overText === '‾' || (wide && (overText === '¯' || overText === '̅')))
+      return `\\overline{${base}}`;
+    if (overText === '⏞') return `\\overbrace{${base}}`;
+    if (overText === '←') return `\\overleftarrow{${base}}`;
+    if (wide && (overText === '→' || overText === '⃗')) return `\\overrightarrow{${base}}`;
+    if (isStretched(baseEl, 'mover', '⏞')) return `${base}^{${childAt(1)}}`;
+    const accent = accentCommand(overText);
+    return accent ? `${accent}{${base}}` : `\\overset{${childAt(1)}}{${base}}`;
+  }
+
+  function decodeEntities(html) {
+    return new DOMParser().parseFromString(`<!doctype html><body>${html}`, 'text/html').body.textContent;
+  }
+
+  // Characters LaTeX reads as syntax, and characters with no command of their own
+  const MO_MAP = {
+    '−': '-',
+    '{': '\\{',
+    '}': '\\}',
+    '%': '\\%',
+    '$': '\\$',
+    '#': '\\#',
+    '&': '\\&',
+    '_': '\\_',
+    '\\': '\\backslash',
+    '′': "'",
+    '″': "''",
+    '‴': "'''",
+    '‖': '\\|',
+    '∣': '\\mid',
+    // Invisible operators: function application, times, separator, plus
+    '⁡': '',
+    '⁢': '',
+    '⁣': '',
+    '⁤': '',
+  };
+
+  // Commands for symbols and Greek letters. Their characters are read from MathLive itself, so
+  // an import gives back what export wrote. When two commands make the same character, the
+  // first one wins (\to over \rightarrow, \leq over \le).
+  const SYMBOL_COMMANDS = `
+    alpha beta gamma delta epsilon varepsilon zeta eta theta vartheta iota kappa lambda mu nu xi
+    pi varpi rho varrho sigma varsigma tau upsilon phi varphi chi psi omega
+    Gamma Delta Theta Lambda Xi Pi Sigma Upsilon Phi Psi Omega
+    pm mp times div cdot ast star circ bullet oplus ominus otimes oslash odot cap cup sqcap sqcup
+    land lor wedge vee neg setminus wr uplus amalg dagger ddagger
+    leq geq neq approx equiv sim simeq cong propto ll gg prec succ preceq succeq
+    subset supset subseteq supseteq sqsubseteq sqsupseteq in notin ni mid parallel perp models
+    vdash dashv asymp doteq
+    to rightarrow leftarrow leftrightarrow Rightarrow Leftarrow Leftrightarrow Longrightarrow
+    Longleftarrow Longleftrightarrow longrightarrow longleftarrow mapsto uparrow downarrow
+    updownarrow Uparrow Downarrow nearrow searrow swarrow nwarrow hookrightarrow hookleftarrow
+    infty forall exists nexists emptyset nabla partial aleph hbar ell wp Re Im angle triangle
+    therefore because ldots cdots vdots ddots prime degree top bot surd
+    sum prod coprod int iint iiint oint bigcup bigcap bigoplus bigotimes bigvee bigwedge
+    langle rangle lfloor rfloor lceil rceil`.trim().split(/\s+/);
+  let symbolCommands = null;
+
+  function symbolCommand(text) {
+    if (!symbolCommands) {
+      symbolCommands = new Map();
+      for (const name of SYMBOL_COMMANDS) {
+        const match = MathLive.convertLatexToMathMl(`\\${name}`).match(/^<m[io][^>]*>([^<]+)<\/m[io]>$/);
+        const char = match && decodeEntities(match[1]);
+        if (char && !symbolCommands.has(char)) symbolCommands.set(char, `\\${name}`);
+      }
+    }
+    return symbolCommands.get(text);
+  }
 
   // Named functions MathML writes as <mi>sin</mi> (or <mo>lim</mo>)
   const FUNCTION_NAMES = new Set([
@@ -1043,22 +1316,71 @@ window.addEventListener('DOMContentLoaded', () => {
     'min', 'sup', 'inf', 'det', 'dim', 'ker', 'deg', 'gcd', 'arg', 'hom', 'Pr',
   ]);
 
-  // Text of an <mi> or <mo> as LaTeX. MO_MAP also covers Greek letters in <mi>.
-  // A command gets a trailing space so it can't run into a following letter
-  // (\sin x and a\times b, not \sinx and a\timesb).
+  // Text of an <mi> or <mo> as LaTeX: a function name, a character LaTeX reads as syntax, or a
+  // symbol or Greek letter with a command. A command gets a trailing space so it can't run into
+  // a following letter (\sin x and a\times b, not \sinx and a\timesb).
   function tokenToLatex(text) {
-    const latex = FUNCTION_NAMES.has(text) ? `\\${text}` : MO_MAP[text] ?? text;
+    if (/^\u2032+$/.test(text)) return "'".repeat(text.length);
+    const latex = FUNCTION_NAMES.has(text) ? `\\${text}` : MO_MAP[text] ?? symbolCommand(text) ?? text;
     return /\\[a-zA-Z]+$/.test(latex) ? `${latex} ` : latex;
   }
 
-  // <mi>, <mn> or <mo> as LaTeX, keeping bold from mathvariant, fontweight or 𝐱-style characters
+  // Font variants other than bold, as LaTeX commands for Latin letters and digits
+  const VARIANT_COMMANDS = {
+    normal: '\\mathrm', 'double-struck': '\\mathbb', script: '\\mathcal', fraktur: '\\mathfrak',
+    'sans-serif': '\\mathsf', monospace: '\\mathtt',
+  };
+  // Mathematical Alphanumeric Symbols for other fonts (MathLive writes \mathbb{R} as ℝ),
+  // as code point ranges, plus the older letterlike symbols such as ℝ and ℭ
+  const UNICODE_VARIANTS = [
+    [0x1D49C, 0x1D4CF, '\\mathcal'], [0x1D504, 0x1D537, '\\mathfrak'], [0x1D538, 0x1D56B, '\\mathbb'],
+    [0x1D5A0, 0x1D5D3, '\\mathsf'], [0x1D670, 0x1D6A3, '\\mathtt'], [0x1D7D8, 0x1D7E1, '\\mathbb'],
+    [0x1D7E2, 0x1D7EB, '\\mathsf'], [0x1D7F6, 0x1D7FF, '\\mathtt'],
+  ];
+  const LETTERLIKE_VARIANTS = {
+    '\\mathbb': 'ℂℍℕℙℚℝℤ', '\\mathfrak': 'ℭℌℑℜℨ', '\\mathcal': 'ℬℰℱℋℐℒℳℛ',
+  };
+
+  // \mathbb{R} for ℝ or 𝕉, null for anything else
+  function unicodeVariantLatex(text) {
+    const chars = [...text];
+    if (chars.length !== 1) return null;
+    const code = chars[0].codePointAt(0);
+    const command = UNICODE_VARIANTS.find(([from, to]) => code >= from && code <= to)?.[2] ??
+      Object.keys(LETTERLIKE_VARIANTS).find((c) => LETTERLIKE_VARIANTS[c].includes(chars[0]));
+    return command ? `${command}{${text.normalize('NFKC')}}` : null;
+  }
+
+  // Bars written as identifiers: | and \| (MathLive's own MathML did this before 1.3.0)
+  const IDENTIFIER_BARS = { '∣': '|', '∥': '\\|' };
+
+  // <mi>, <mn> or <mo> as LaTeX, keeping bold from mathvariant, fontweight or 𝐱-style characters,
+  // and other font variants (\mathrm, \mathbb, …)
   function tokenElementToLatex(node) {
     let text = node.textContent.trim();
     const unicodeBold = unicodeBoldStyle(text);
     if (unicodeBold) text = text.normalize('NFKC'); // 𝐱 → x
-    const latex = node.localName === 'mn' ? text : tokenToLatex(text);
+    if (node.localName === 'mn') {
+      // 1,000 is one number; {,} keeps LaTeX from spacing it like a list
+      const number = text.replace(/,/g, '{,}');
+      return isBold(mathvariantOf(node) ?? unicodeBold) ? `\\mathbf{${number}}` : number;
+    }
+    if (node.localName === 'mi' && IDENTIFIER_BARS[text]) return IDENTIFIER_BARS[text];
+    // ⊥ between two things is perpendicular (MathLive's \perp is ⟂, and ⊥ alone is \bot)
+    if (node.localName === 'mo' && text === '\u22A5') return '\\perp ';
+    const variantLatex = unicodeVariantLatex(text);
+    if (variantLatex) return variantLatex;
+    const latex = tokenToLatex(text);
     // Operators stay regular, as with \mathbf in LaTeX and on export
     const variant = node.localName === 'mo' ? null : mathvariantOf(node) ?? unicodeBold;
+    const letters = /^[A-Za-z0-9]+$/.test(text);
+    if (letters && VARIANT_COMMANDS[variant] && !(variant === 'normal' && node.localName !== 'mi')) {
+      return `${VARIANT_COMMANDS[variant]}{${text}}`;
+    }
+    // Several letters in an <mi> are upright, like a function name: <mi>Var</mi>
+    if (node.localName === 'mi' && !variant && /^[A-Za-z]{2,}$/.test(text) && !FUNCTION_NAMES.has(text)) {
+      return `\\operatorname{${text}}`;
+    }
     if (!isBold(variant)) return latex;
     // \mathbf covers Latin letters and digits; \boldsymbol also covers Greek and symbols
     const command = variant === 'bold' && /^[A-Za-z0-9.,]+$/.test(text) ? '\\mathbf' : '\\boldsymbol';

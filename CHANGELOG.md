@@ -4,6 +4,40 @@ All notable changes to MacMath. Versions match the `version` in `package.json`.
 
 **Updating?** Get the latest code, then run `npm install` before `npm start` or `npm run build`. See [Updating MacMath](README.md#updating-macmath).
 
+## 1.3.0 - 2026-10-13
+
+### Added
+
+- `Cmd+I` makes math letters upright (`\mathrm`), for labels like the v in F<sub>v</sub>, and switches them back to italic. In text it toggles italic. Upright letters are copied to MathML as `mathvariant="normal"`.
+
+### Changed
+
+- Reading math from images is more accurate. MacMath fills a transparent background with white first: on transparent images of formulas, the recommended model went from 0 of 30 right (it made up text) to 28 of 30. It also crops the image to the math and enlarges small formulas, for both Apple Intelligence and Ollama.
+- Upright and bold letters read from images stay math: `\mathbf{F}_{\mathrm{net}}` instead of `\text{F}_{\text{net}}`, which copied as text in MathML.
+- MathML import keeps upright letters: `mathvariant="normal"` comes back as `\mathrm`, and multi-letter identifiers such as `<mi>Var</mi>` as `\operatorname` (they were split into italic letters).
+
+### Fixed
+
+- HEIC, TIFF, GIF, BMP and WebP images couldn't be read. Only PNG and JPEG worked.
+- `Cmd+B` on selected text applied math bold, which had no effect. It now makes the text bold.
+- Copied MathML was wrong or incomplete for:
+  - `1{,}000`, which became the decimal `1.000`.
+  - `\binom`, now a fraction with no line.
+  - Isotopes like `{}^{14}\mathrm{C}`, which were invalid MathML.
+  - `\overrightarrow`, `\underbrace`, `\overbrace`, `\xrightarrow`, `\mathring`, `\widehat`, `\widetilde`, `\mathcal`, `\pmod`, `\dots` and `\iff`, which lost their content, symbol or font.
+
+  Letters before `=` (`g=9.8`) no longer get a function-application operator, and `|x|` uses operators instead of identifiers.
+- MathML import kept more of the original:
+  - Spacing: `\,`, `\:`, `\quad`, `\qquad` and `\!` all came back as `\;`.
+  - Braces, `%` and `$`: `\{x\}` lost its braces and `50\%` became `50`.
+  - Symbols: `\varepsilon`, `\varphi`, `\parallel` and `\mid`, plus symbols that came back as raw Unicode characters.
+  - Accents (`\bar`, `\ddot`, `\check` and others) and primes (`f''`).
+  - Isotopes, including `<mmultiscripts>`.
+  - Matrices, which now come back as `pmatrix`, `bmatrix`, `vmatrix` or `cases`, and `\binom`.
+  - `<mfenced>` separators.
+  - Font variants: `\mathbb`, `\mathcal`, `\mathfrak`, `\mathsf` and `\mathtt`, from `mathvariant` or from characters like `ℝ`.
+- With many history entries, the rows were squeezed into each other. The list now scrolls.
+
 ## 1.2.0 - 2026-10-05
 
 ### Added

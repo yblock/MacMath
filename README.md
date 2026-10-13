@@ -16,7 +16,7 @@ A macOS menu bar utility for writing math and copying it as LaTeX or MathML.
 - **MathML namespace prefix** -- set a custom prefix like `m:` or `mml:` for output
 - **Expression history** -- recent expressions saved for quick re-use
 - **Global shortcut** -- `Cmd+Shift+M` summons MacMath from any app
-- **Bold and underline** -- `Cmd+B` and `Cmd+U` toggle formatting, exported to both LaTeX and MathML
+- **Bold, upright and underline** -- `Cmd+B`, `Cmd+I` and `Cmd+U` toggle formatting, exported to both LaTeX and MathML
 - **Light and dark mode** -- follows system preference, with a manual toggle
 - **Launch at login** -- option in the tray menu
 - **Text mode** -- switch between math symbols and plain text input
@@ -166,7 +166,7 @@ MacMath can turn an image of math into an expression you can edit. The image is 
 - Click **Import**, then **Image…**, and choose a file
 - Drag an image file onto the MacMath icon in the menu bar
 
-A spinner covers the editor while the image is read, which takes a few seconds (longer the first time, while the model loads). The result replaces what's in the editor. MacMath tidies the LaTeX the model writes, for example `pmatrix` instead of `\left(\begin{array}…\right)`. Check the result before copying: models can misread symbols, especially in handwriting.
+A spinner covers the editor while the image is read, which takes a few seconds (longer the first time, while the model loads). The result replaces what's in the editor. Before the model sees the image, MacMath crops it to the math, enlarges small formulas and fills a transparent background with white. Any image format macOS opens works, including HEIC, TIFF and WebP. MacMath tidies the LaTeX the model writes, for example `pmatrix` instead of `\left(\begin{array}…\right)`. Check the result before copying: models can misread symbols, especially in handwriting.
 
 Choose the model under **Import** → **Read images with**:
 
@@ -184,6 +184,7 @@ Need more room? Drag either bottom corner of the editor to resize it in both dir
 | `Cmd+Enter` | Copy LaTeX |
 | `Cmd+Shift+Enter` | Copy MathML |
 | `Cmd+B` | Toggle bold |
+| `Cmd+I` | Toggle upright letters in math (`\mathrm`, such as the label in F<sub>v</sub>); italic in text |
 | `Cmd+U` | Toggle underline on the selection |
 | `Cmd+Z` | Undo |
 | `Cmd+Shift+Z` | Redo |

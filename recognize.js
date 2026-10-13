@@ -34,14 +34,25 @@ const OLLAMA_APP_PATHS = ['/Applications/Ollama.app', path.join(os.homedir(), 'A
 const OLLAMA_CLI_PATHS = ['/opt/homebrew/bin/ollama', '/usr/local/bin/ollama'];
 // Larger images only cost time and tokens
 const MAX_IMAGE_SIDE = 1600;
+// A tightly cropped inline formula can be 20 px tall, too small for the models to read
+const MIN_CONTENT_HEIGHT = 96;
+const MAX_UPSCALE = 4;
+// A pixel that differs from the background by more than this in any channel is ink
+const INK_THRESHOLD = 40;
+// Space around the math after cropping, a quarter of its height within these limits
+const MIN_MARGIN = 16;
+const MAX_MARGIN = 48;
 
 // Same instructions as native/mathocr.swift. Chosen by testing prompts on rendered textbook
 // formulas: rules about matrix environments made the models swap bracket types (tidyEnvironments
 // handles those instead), and a rule about several lines made qwen2.5vl:7b wrap every formula in aligned.
+// Without the \mathrm rule, physics notation came back as \text{F}_{\text{net}}=m\text{a} (12 bold-vector
+// and subscript-label formulas: 12 right with it, 6 without; no change on the 30 statistics formulas).
 const INSTRUCTIONS = 'You transcribe mathematics from images into LaTeX.\n' +
   'Rules:\n' +
   '- Reply with only the LaTeX. No explanation, no Markdown, no $ or $$.\n' +
   '- Write words with normal spacing inside \\text{}, for example \\text{at least one head}. Never put spaces between the letters of a word.\n' +
+  '- Never use \\text{} for single letters or labels. Bold letters: \\mathbf{F}. Upright (non-italic) letters and labels: \\mathrm{}, for example \\mathbf{F}_{\\mathrm{net}} or v_{\\mathrm{i}}.\n' +
   '- Use \\bar{x} for a letter with a bar over it, \\hat{y} for a hat.\n' +
   '- Keep every bracket, brace and bar exactly as shown.\n' +
   '- Copy exactly what is shown. Do not solve, simplify or add anything.';
@@ -113,9 +124,15 @@ async function appleUnavailableReason() {
   return status.available ? null : (status.reason || status.error);
 }
 
-async function recognizeWithApple(file) {
-  const result = await runHelper(['recognize', file]);
-  return result.error ? { error: result.error } : { text: result.latex ?? '' };
+async function recognizeWithApple(png) {
+  const file = path.join(app.getPath('temp'), `macmath-image-${process.pid}-${Date.now()}.png`);
+  await fs.promises.writeFile(file, png);
+  try {
+    const result = await runHelper(['recognize', file]);
+    return result.error ? { error: result.error } : { text: result.latex ?? '' };
+  } finally {
+    fs.promises.unlink(file).catch(() => {});
+  }
 }
 
 // --- Ollama ---
@@ -235,20 +252,7 @@ async function unloadOllamaModel() {
   await ollama('generate', { model, keep_alive: 0 }, 2000).catch(() => {});
 }
 
-// PNG as base64, scaled down when large. nativeImage also opens HEIC and TIFF, which Ollama can't.
-function imageForOllama(file) {
-  let image = nativeImage.createFromPath(file);
-  if (image.isEmpty()) throw new Error('Couldn\'t open the image.');
-  const { width, height } = image.getSize();
-  if (Math.max(width, height) > MAX_IMAGE_SIDE) {
-    image = width >= height
-      ? image.resize({ width: MAX_IMAGE_SIDE, quality: 'best' })
-      : image.resize({ height: MAX_IMAGE_SIDE, quality: 'best' });
-  }
-  return image.toPNG().toString('base64');
-}
-
-async function recognizeWithOllama(model, file) {
+async function recognizeWithOllama(model, png) {
   try {
     // A saved choice can predate the size check in the picker
     const info = (await ollamaVisionModels().catch(() => [])).find((m) => m.name === model);
@@ -261,13 +265,124 @@ async function recognizeWithOllama(model, file) {
       options: { temperature: 0 },
       messages: [
         { role: 'system', content: INSTRUCTIONS },
-        { role: 'user', content: PROMPT, images: [imageForOllama(file)] }
+        { role: 'user', content: PROMPT, images: [png.toString('base64')] }
       ]
     }, OLLAMA_TIMEOUT);
     return { text: data.message?.content ?? '' };
   } catch (err) {
     return { error: err.message };
   }
+}
+
+// --- Image preparation ---
+
+// nativeImage decodes only PNG and JPEG; macOS's sips converts the rest (HEIC, TIFF, GIF, BMP, WebP).
+// Loading from a buffer keeps the real pixel size (a file named name@2x.png would open at half size).
+async function loadImage(file) {
+  const image = nativeImage.createFromBuffer(await fs.promises.readFile(file));
+  if (!image.isEmpty()) return image;
+  const png = path.join(app.getPath('temp'), `macmath-convert-${process.pid}-${Date.now()}.png`);
+  try {
+    await new Promise((resolve, reject) => {
+      execFile('/usr/bin/sips', ['-s', 'format', 'png', file, '--out', png], { timeout: 30000 }, (err) => err ? reject(err) : resolve());
+    });
+    return nativeImage.createFromBuffer(await fs.promises.readFile(png));
+  } catch {
+    return nativeImage.createEmpty();
+  } finally {
+    fs.promises.unlink(png).catch(() => {});
+  }
+}
+
+// The image as a PNG that both engines read well: transparency filled with white, cropped to
+// the math with an even margin, small formulas enlarged and large images reduced
+async function prepareImage(file) {
+  const original = await loadImage(file).catch(() => nativeImage.createEmpty());
+  if (original.isEmpty()) throw new Error('Couldn\'t open the image.');
+  const { width, height } = original.getSize();
+  const pixels = original.toBitmap();
+  flattenOnWhite(pixels);
+
+  const background = backgroundColor(pixels, width, height);
+  const box = (background && inkBounds(pixels, width, height, background)) || { x: 0, y: 0, width, height };
+  let scale = box.height < MIN_CONTENT_HEIGHT ? Math.min(MIN_CONTENT_HEIGHT / box.height, MAX_UPSCALE) : 1;
+  scale = Math.min(scale, (MAX_IMAGE_SIDE - 2 * MAX_MARGIN) / Math.max(box.width, box.height));
+  const margin = Math.round(Math.min(Math.max(box.height * scale * 0.25, MIN_MARGIN), MAX_MARGIN));
+
+  let image = nativeImage.createFromBitmap(pixels, { width, height }).crop(box);
+  if (scale !== 1) {
+    image = image.resize({ width: Math.max(1, Math.round(box.width * scale)), quality: 'best' });
+  }
+  return pad(image, margin, background ?? [255, 255, 255]).toPNG();
+}
+
+// Screenshots and rendered formulas often have a transparent background, which a model can
+// see as black behind black text. The bitmap is premultiplied BGRA, so white shows through
+// as 255 - alpha in every channel.
+function flattenOnWhite(pixels) {
+  for (let i = 0; i < pixels.length; i += 4) {
+    const clear = 255 - pixels[i + 3];
+    if (!clear) continue;
+    pixels[i] += clear;
+    pixels[i + 1] += clear;
+    pixels[i + 2] += clear;
+    pixels[i + 3] = 255;
+  }
+}
+
+// The [b, g, r] that most of the border has, or null when the border isn't mostly one color
+// (a photo, or the math runs to the edge)
+function backgroundColor(pixels, width, height) {
+  const counts = new Map();
+  let total = 0;
+  const count = (x, y) => {
+    const i = (y * width + x) * 4;
+    // Group close colors so JPEG noise doesn't split the background
+    const key = (pixels[i] >> 4) << 8 | (pixels[i + 1] >> 4) << 4 | pixels[i + 2] >> 4;
+    const entry = counts.get(key) ?? { n: 0, color: [pixels[i], pixels[i + 1], pixels[i + 2]] };
+    entry.n++;
+    counts.set(key, entry);
+    total++;
+  };
+  for (let x = 0; x < width; x++) { count(x, 0); count(x, height - 1); }
+  for (let y = 1; y < height - 1; y++) { count(0, y); count(width - 1, y); }
+  const top = [...counts.values()].sort((a, b) => b.n - a.n)[0];
+  return top.n >= total * 0.6 ? top.color : null;
+}
+
+// The smallest rectangle around everything that isn't background, or null when there's nothing
+function inkBounds(pixels, width, height, background) {
+  let left = width, right = -1, top = height, bottom = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      if (Math.abs(pixels[i] - background[0]) <= INK_THRESHOLD &&
+        Math.abs(pixels[i + 1] - background[1]) <= INK_THRESHOLD &&
+        Math.abs(pixels[i + 2] - background[2]) <= INK_THRESHOLD) continue;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+  return right < 0 ? null : { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
+}
+
+function pad(image, margin, [b, g, r]) {
+  const { width, height } = image.getSize();
+  const source = image.toBitmap();
+  const outWidth = width + 2 * margin;
+  const out = Buffer.alloc(outWidth * (height + 2 * margin) * 4);
+  for (let i = 0; i < out.length; i += 4) {
+    out[i] = b;
+    out[i + 1] = g;
+    out[i + 2] = r;
+    out[i + 3] = 255;
+  }
+  for (let y = 0; y < height; y++) {
+    source.copy(out, ((y + margin) * outWidth + margin) * 4, y * width * 4, (y + 1) * width * 4);
+  }
+  return nativeImage.createFromBitmap(out, { width: outWidth, height: height + 2 * margin });
 }
 
 // --- Engines ---
@@ -517,17 +632,33 @@ function simplifyBraces(latex) {
       i--;
     }
   }
-  return out
-    // Text spelled out letter by letter, with ~ between words: \mathrm{a t ~ l e a s t}
-    .replace(/\\(text|mathrm)\{([a-zA-Z~ ]+)\}/g, (m, command, content) => {
+  // Text spelled out letter by letter, with ~ between words: \mathrm{a t ~ l e a s t}
+  out = out.replace(/\\(text|mathrm)\{([a-zA-Z~ ]+)\}/g, (m, command, content) => {
       const tokens = content.trim().split(/\s+/);
       if (!content.includes('~') || !tokens.every((t) => t.length === 1) || tokens.filter((t) => t !== '~').length < 2) return m;
       const words = content.split('~').map((word) => word.replace(/\s+/g, '')).filter(Boolean);
       // Several words are a phrase; one word (kg, max) keeps its command
       return `\\${words.length > 1 ? 'text' : command}{${words.join(' ')}}`;
-    })
+    });
+  return tidyMathrm(out)
+    // A single upright letter is math, not text: \text{v} -> \mathrm{v}, so it becomes <mi>, not <mtext>
+    .replace(/\\text(rm)?\{([a-zA-Z])\}/g, '\\mathrm{$2}')
+    .replace(/\\textbf\{([a-zA-Z])\}/g, '\\mathbf{$1}')
     .replace(/([\^_])\{([a-zA-Z0-9])\}(?![a-zA-Z0-9])/g, '$1$2')
     .replace(/\\overline\{([a-zA-Z])\}/g, '\\bar{$1}');
+}
+
+// tidyLatex keeps spaces in \mathrm{} so simplifyBraces can join letter-spaced words. Spaces
+// there don't show in math mode, so drop them afterward: \mathrm{m / s ^ {2 }} -> \mathrm{m/s^{2}}
+function tidyMathrm(latex) {
+  let out = latex;
+  for (let i = out.indexOf('\\mathrm{'); i >= 0; i = out.indexOf('\\mathrm{', i + 1)) {
+    const open = i + '\\mathrm'.length;
+    const close = closingBrace(out, open);
+    if (close < 0) break;
+    out = out.slice(0, open + 1) + tidyLatex(out.slice(open + 1, close)) + out.slice(close);
+  }
+  return out;
 }
 
 // \binom{n}{x} or \frac{a}{b}: one command and its arguments, nothing after them
@@ -551,9 +682,15 @@ async function recognizeImage(file) {
       if (resolved.error) return { error: resolved.error };
       engine = resolved.engine;
     }
+    let png;
+    try {
+      png = await prepareImage(file);
+    } catch (err) {
+      return { error: err.message };
+    }
     const result = engine === 'apple'
-      ? await recognizeWithApple(file)
-      : await recognizeWithOllama(engine.slice('ollama:'.length), file);
+      ? await recognizeWithApple(png)
+      : await recognizeWithOllama(engine.slice('ollama:'.length), png);
     if (result.error) return { error: result.error };
     const latex = cleanLatex(result.text);
     return latex ? { latex } : { error: 'No math found in the image.' };
@@ -594,4 +731,4 @@ async function clipboardImage() {
   return { file, temporary: true };
 }
 
-module.exports = { startOllama, downloadRecommendedModel, unloadOllamaModel, cleanLatex, isRecognizing, clipboardImage, IMAGE_EXTENSIONS, isImageFile, listEngines, getEngine, setEngine, unavailableReason, recognizeImage };
+module.exports = { prepareImage, startOllama, downloadRecommendedModel, unloadOllamaModel, cleanLatex, isRecognizing, clipboardImage, IMAGE_EXTENSIONS, isImageFile, listEngines, getEngine, setEngine, unavailableReason, recognizeImage };
