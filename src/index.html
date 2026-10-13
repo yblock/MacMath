@@ -792,6 +792,10 @@
   </div>
 
   <script src="../node_modules/mathlive/mathlive.min.js"></script>
+  <!-- mhchemparser is CommonJS: lend it an exports object for \ce and \pu, then take it back -->
+  <script>window.exports = {};</script>
+  <script src="../node_modules/mhchemparser/dist/mhchemParser.js"></script>
+  <script>window.mhchemParser = window.exports.mhchemParser; delete window.exports;</script>
   <script src="./renderer.js"></script>
 </body>
 </html>

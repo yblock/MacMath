@@ -53,6 +53,7 @@ const INSTRUCTIONS = 'You transcribe mathematics from images into LaTeX.\n' +
   '- Reply with only the LaTeX. No explanation, no Markdown, no $ or $$.\n' +
   '- Write words with normal spacing inside \\text{}, for example \\text{at least one head}. Never put spaces between the letters of a word.\n' +
   '- Never use \\text{} for single letters or labels. Bold letters: \\mathbf{F}. Upright (non-italic) letters and labels: \\mathrm{}, for example \\mathbf{F}_{\\mathrm{net}} or v_{\\mathrm{i}}.\n' +
+  '- Chemistry: element symbols are upright, for example \\mathrm{H}_{2}\\mathrm{O} or {}^{14}_{6}\\mathrm{C}. Every symbol is a real element; if a letter is unclear, choose the one that makes a real element.\n' +
   '- Use \\bar{x} for a letter with a bar over it, \\hat{y} for a hat.\n' +
   '- Keep every bracket, brace and bar exactly as shown.\n' +
   '- Copy exactly what is shown. Do not solve, simplify or add anything.';
@@ -449,7 +450,78 @@ function cleanLatex(text) {
       break;
     }
   }
-  return simplifyBraces(tidyEnvironments(tidyLatex(latex)));
+  return fixIsotopeSymbols(simplifyBraces(tidyEnvironments(tidyLatex(unwrapTextMath(latex)))));
+}
+
+// Element symbols by atomic number (index + 1)
+const ELEMENTS = ('H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni Cu Zn ' +
+  'Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I Xe Cs Ba La Ce Pr Nd Pm Sm ' +
+  'Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu ' +
+  'Am Cm Bk Cf Es Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og').split(' ');
+// Letters a blurry or low-resolution image confuses: ³He read as ³Hc
+const LOOKALIKES = [['c', 'e'], ['e', 'c'], ['e', 'o'], ['o', 'e'], ['l', 'I'], ['I', 'l'], ['1', 'l'],
+  ['l', '1'], ['1', 'I'], ['0', 'O'], ['O', '0'], ['rn', 'm'], ['m', 'rn'], ['u', 'n'], ['n', 'u'], ['i', 'l']];
+
+// Isotope notation ({}^{3}\mathrm{He}, {}_{92}^{235}\mathrm{U}) is clearly chemistry, so its symbol
+// must be an element. When it isn't, and swapping one lookalike makes exactly one element
+// (matching the atomic number when there is one), that is what the image showed.
+function fixIsotopeSymbols(latex) {
+  const script = String.raw`(?:\{(\d+)\}|(\d))`;
+  // The empty base may be missing at the start: ^{3}\mathrm{He}
+  const isotope = new RegExp(String.raw`(?:\{\}|^)(?:_${script})?\^${script}(?:_${script})?\s*\\(mathrm|text|textrm)\{([A-Za-z0-9]{1,3})\}`, 'g');
+  return latex.replace(isotope, (match, z1, z2, a1, a2, z3, z4, command, symbol) => {
+    if (ELEMENTS.includes(symbol)) return match;
+    const atomicNumber = Number(z1 ?? z2 ?? z3 ?? z4) || null;
+    const candidates = new Set();
+    for (const [from, to] of LOOKALIKES) {
+      for (let i = symbol.indexOf(from); i >= 0; i = symbol.indexOf(from, i + 1)) {
+        const fixed = symbol.slice(0, i) + to + symbol.slice(i + from.length);
+        const z = ELEMENTS.indexOf(fixed) + 1;
+        if (z && (!atomicNumber || z === atomicNumber)) candidates.add(fixed);
+      }
+    }
+    if (candidates.size !== 1) return match;
+    return match.slice(0, -symbol.length - 1) + [...candidates][0] + '}';
+  });
+}
+
+// Math inside text is just math: \text{${}^3\mathrm{He}$} -> {}^3\mathrm{He}. Text around it
+// stays text: \text{if $x>0$} -> \text{if }x>0
+function unwrapTextMath(latex) {
+  let out = latex;
+  const pattern = /\\(text|textrm|mbox)\s*\{/g;
+  let match;
+  while ((match = pattern.exec(out))) {
+    const open = match.index + match[0].length - 1;
+    const close = closingBrace(out, open);
+    if (close < 0) break;
+    const parts = splitAtDollars(out.slice(open + 1, close));
+    if (!parts) continue;
+    // Text at even positions, math at odd ones
+    let replacement = parts.map((part, i) => (i % 2 || !part ? part : `\\${match[1]}{${part}}`)).join('');
+    // A script's argument stays one group: x^\text{$ab$} -> x^{ab}
+    if (/[\^_]\s*$/.test(out.slice(0, match.index))) replacement = `{${replacement}}`;
+    out = out.slice(0, match.index) + replacement + out.slice(close + 1);
+    pattern.lastIndex = match.index + replacement.length;
+  }
+  return out;
+}
+
+// Splits text at unescaped $ (or $$), or returns null when there is no complete $…$ pair
+function splitAtDollars(text) {
+  const parts = [''];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\\') {
+      parts[parts.length - 1] += text.slice(i, i + 2);
+      i++;
+    } else if (text[i] === '$') {
+      if (text[i + 1] === '$') i++;
+      parts.push('');
+    } else {
+      parts[parts.length - 1] += text[i];
+    }
+  }
+  return parts.length > 1 && parts.length % 2 ? parts : null;
 }
 
 const OPERATOR_NAMES = ['lim', 'sin', 'cos', 'tan', 'log', 'ln', 'exp', 'max', 'min', 'sup', 'inf', 'det', 'arg'];
@@ -461,6 +533,7 @@ function tidyLatex(latex) {
   let out = '';
   let textDepth = 0; // > 0 inside \text{…} and similar, where spaces are words
   let depth = 0;
+  let textStart = -1; // where the text argument begins, while a leading space there matters
   for (let i = 0; i < latex.length; i++) {
     const ch = latex[i];
     if (ch === '\\') {
@@ -471,6 +544,8 @@ function tidyLatex(latex) {
         // the argument's opening brace comes next, possibly after spaces
         while (/\s/.test(latex[i + 1] ?? '')) i++;
         if (latex[i + 1] === '{') {
+          // Keep a leading space when math comes directly before: x\text{ and }y
+          textStart = /[a-zA-Z0-9})\]]$/.test(out.slice(0, -command.length)) ? out.length + 1 : -1;
           out += '{';
           i++;
           depth++;
@@ -491,7 +566,7 @@ function tidyLatex(latex) {
     }
     if (/\s/.test(ch)) {
       if (textDepth) {
-        if (!/\s$|\{$/.test(out)) out += ' ';
+        if (!/\s$|\{$/.test(out) || out.length === textStart) out += ' ';
       } else if (/\\[a-zA-Z]+$/.test(out) && /[a-zA-Z]/.test(latex.slice(i).trimStart()[0] ?? '')) {
         // \sin x: the space ends the command name
         out += ' ';
