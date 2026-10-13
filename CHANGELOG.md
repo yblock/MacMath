@@ -21,6 +21,7 @@ Run `npm install` after updating to this version: it adds mhchem's parser.
 - `\xrightarrow[below]{above}`, `\xleftrightarrow` and `\xrightleftharpoons` keep their arrows and labels in copied MathML, and import back.
 - Math inside text from an image (`\text{$…$}`) becomes plain math, and text keeps its space after a variable (`x\text{ be the number}`).
 - With a MathML prefix, `<none/>` gets it too.
+- `\phantom`, `\hphantom` and `\vphantom` are copied as `<mphantom>` (with an `<mpadded>` of no height and depth, or no width, for `\hphantom` and `\vphantom`). Before, Copy MathML left them out, so anything aligned with phantoms lost its spacing. Importing MathML reads them back as phantoms; before, their contents became visible.
 
 ## 1.3.2 - 2026-10-13
 
