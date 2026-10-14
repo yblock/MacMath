@@ -58,6 +58,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const setupBtn = document.getElementById('setupBtn');
   const nsPrefix = document.getElementById('nsPrefix');
   const nsExample = document.getElementById('nsExample');
+  const targetButtons = document.querySelectorAll('.target-toggle button');
   const appBottomAnchor = document.querySelector('.namespace-row');
 
   customElements.whenDefined('math-field').then(() => {
@@ -375,6 +376,40 @@ window.addEventListener('DOMContentLoaded', () => {
     copyBtnTimers.set(btn, timer);
   }
 
+  // --- Root environments ---
+
+  // MathLive makes a loaded or pasted \begin{align}…\end{align} (or gather, equation, multline…)
+  // the root of the editor and has no way to undo that: everything set afterwards lands in its
+  // first cell. The environments that don't take over the root look the same.
+  const ROOT_ENVIRONMENTS = {
+    align: 'aligned', 'align*': 'aligned', eqnarray: 'aligned', 'eqnarray*': 'aligned',
+    gather: 'gathered', 'gather*': 'gathered', multline: 'gathered', 'multline*': 'gathered', center: 'gathered',
+    equation: '', 'equation*': '', subequations: '', math: '', displaymath: '',
+  };
+  const ROOT_ENVIRONMENT = /\\(begin|end)\s*\{([a-z]+\*?)\}/g;
+
+  function withoutRootEnvironments(latex) {
+    return latex.replace(ROOT_ENVIRONMENT, (command, which, name) => {
+      if (!(name in ROOT_ENVIRONMENTS)) return command;
+      return ROOT_ENVIRONMENTS[name] ? `\\${which}{${ROOT_ENVIRONMENTS[name]}}` : '';
+    });
+  }
+
+  function setEditorValue(latex) {
+    mathField.setValue(withoutRootEnvironments(latex));
+  }
+
+  // Pasted LaTeX with one: capture phase, before MathLive's own paste handler
+  window.addEventListener('paste', (e) => {
+    if (e.target !== mathField) return;
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    const latex = withoutRootEnvironments(text);
+    if (latex === text) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    mathField.insert(latex, { format: 'latex', selectionMode: 'after' });
+  }, true);
+
   // --- Keyboard shortcuts ---
 
   // Cmd+Enter copies (below). MathLive also binds it to "add row", which would
@@ -511,7 +546,7 @@ window.addEventListener('DOMContentLoaded', () => {
       item.title = 'Click to load into editor';
       item.addEventListener('mousedown', (e) => e.preventDefault());
       item.addEventListener('click', () => {
-        mathField.setValue(latex);
+        setEditorValue(latex);
         latexPreview.textContent = mathField.getValue('latex');
         mathField.focus();
       });
@@ -612,6 +647,8 @@ window.addEventListener('DOMContentLoaded', () => {
   // {,} became a decimal point (1{,}000 -> 1.000), \widehat an "undefined" accent,
   // \dots an error, \iff nothing
   const COMMA_MARKER = 'MacMathComma';
+  const SPACE_MARKER = 'MacMathSpace';
+  const SIZED_SPACE = /\\(?:hspace\*?|kern|mkern|mspace|hskip)\s*(?:\{\s*(-?[\d.]+)\s*([a-z]{2})\s*\}|(-?[\d.]+)\s*([a-z]{2}))/g;
   const EXPORT_REWRITES = [
     [/\{,\}/g, `\\text{${COMMA_MARKER}}`],
     [/\\widehat(?![a-zA-Z])/g, '\\hat'],
@@ -627,6 +664,8 @@ window.addEventListener('DOMContentLoaded', () => {
     [/\\pmod\s*(\{[^{}]*\}|\\[a-zA-Z]+|\S)/g, '\\quad(\\operatorname{mod}\\,$1)'],
     [/\\bmod(?![a-zA-Z])/g, '\\operatorname{mod}'],
     [/\\math(bin|rel|op|ord|open|close|punct|inner)\s*\{/g, '{'],
+    // \hspace, \kern, \mkern, \mspace and \hskip come out with a width of 0
+    [SIZED_SPACE, (_, a, b, c, d) => `{\\text{${SPACE_MARKER}${a ?? c}${b ?? d}}}`],
   ];
 
   // Mathematical Alphanumeric Symbols used for bold, such as 𝐱, 𝛂 and 𝟐
@@ -663,10 +702,14 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   function getMathML() {
-    return toNumericEntities(serializeMathML());
+    // Space characters (MathML for Word) as references, so they can be seen in the file
+    return toNumericEntities(serializeMathML(mathmlTarget))
+      .replace(/[\u2000-\u200A\u205F]/g, (ch) => `&#${ch.codePointAt(0)};`);
   }
 
-  function serializeMathML() {
+  // target 'web' writes MathML for browsers and MathJax; 'word' writes what Word's MathML import
+  // keeps (see wordCompatible)
+  function serializeMathML(target = 'web') {
     // From the LaTeX, not getValue('math-ml'): the live field leaves out styles applied with
     // applyStyle (Cmd+I's \mathrm) until the expression is parsed again
     let marked = arrowsWithLabelBelow(expandChemistry(mathField.getValue('latex')));
@@ -693,6 +736,7 @@ window.addEventListener('DOMContentLoaded', () => {
       'text/html'
     );
     const math = doc.querySelector('math');
+    displayTables(math, marked);
     const operator = (text) => {
       const mo = doc.createElementNS(MATHML_NS, 'mo');
       mo.textContent = text;
@@ -742,19 +786,69 @@ window.addEventListener('DOMContentLoaded', () => {
         wrapper.replaceWith(phantom);
       }
     }
-    repairMathML(math, operator);
+    repairMathML(math, operator, target);
+    if (target === 'word') wordCompatible(math);
     return math.innerHTML;
+  }
+
+  // LaTeX sets these environments in display style, with full-size fractions; matrices, arrays and
+  // cases are in text style. A MathML table is always in text style unless it says otherwise.
+  const DISPLAY_ENVIRONMENTS = new Set([
+    'aligned', 'align', 'align*', 'alignat', 'alignat*', 'alignedat', 'gathered', 'gather', 'gather*',
+    'split', 'multline', 'multline*', 'equation', 'equation*', 'dcases', 'darray',
+  ]);
+
+  // Tables come out in the order of their \begin{…}. When something else made a table too, only
+  // MathLive's aligned columns (right left …) are recognized.
+  function displayTables(math, latex) {
+    const environments = [...latex.matchAll(/\\begin\s*\{([a-zA-Z]+\*?)\}/g)].map((m) => m[1]);
+    const tables = [...math.querySelectorAll('mtable')];
+    tables.forEach((table, i) => {
+      const display = environments.length === tables.length
+        ? DISPLAY_ENVIRONMENTS.has(environments[i])
+        : /^(right left ?)+$/.test(table.getAttribute('columnalign')?.trim() ?? '');
+      if (display) table.setAttribute('displaystyle', 'true');
+    });
   }
 
   const INVISIBLE_OPERATORS = new Set(['\u2061', '\u2062', '\u2063', '\u2064']);
   // Elements with a fixed number of children, and that number
   const ARITY = { mfrac: 2, mroot: 2, msub: 2, msup: 2, msubsup: 3, munder: 2, mover: 2, munderover: 3 };
   const isInvisible = (el) => el?.localName === 'mo' && INVISIBLE_OPERATORS.has(el.textContent);
+  const TOKEN_ELEMENTS = new Set(['mi', 'mn', 'mo', 'mtext', 'ms']);
   // Α to Ω
   const CAPITAL_GREEK = /^[\u0391-\u03A9]$/;
 
   // Fixes MathLive's serializer output that is invalid or means something else
-  function repairMathML(math, operator) {
+  function repairMathML(math, operator, target) {
+    const doc = math.ownerDocument;
+    // \hspace{2em} and the like, as a marker
+    for (const marker of [...math.querySelectorAll('mtext')].filter((t) => t.textContent.startsWith(SPACE_MARKER))) {
+      const [, size, unit] = marker.textContent.slice(SPACE_MARKER.length).match(/^(-?[\d.]+)([a-z]{2})$/) ?? [];
+      const space = doc.createElementNS(MATHML_NS, 'mspace');
+      // mu (an eighteenth of an em) isn't a CSS unit
+      space.setAttribute('width', unit === 'mu' ? `${+(size / 18).toFixed(4)}em` : `${size ?? 0}${unit ?? 'em'}`);
+      // The marker sits in its own group: {\text{…}}
+      const group = marker.parentElement.localName === 'mrow' && marker.parentElement.children.length === 1 ? marker.parentElement : marker;
+      group.replaceWith(space);
+    }
+    // \ and ~ come out as a bare no-break space between elements, which isn't valid MathML
+    const walker = doc.createTreeWalker(math, NodeFilter.SHOW_TEXT);
+    const bareSpaces = [];
+    while (walker.nextNode()) {
+      const parent = walker.currentNode.parentElement;
+      if (!TOKEN_ELEMENTS.has(parent.localName) && /^\s+$/.test(walker.currentNode.textContent) &&
+        walker.currentNode.textContent.includes('\u00A0')) bareSpaces.push(walker.currentNode);
+    }
+    for (const text of bareSpaces) {
+      const mtext = doc.createElementNS(MATHML_NS, 'mtext');
+      mtext.textContent = '\u00A0';
+      text.replaceWith(mtext);
+    }
+    // MathML renderers drop spaces at the ends of a token (\text{if } x), but not no-break spaces
+    for (const mtext of math.querySelectorAll('mtext')) {
+      mtext.textContent = mtext.textContent.replace(/^ +| +$/g, (spaces) => '\u00A0'.repeat(spaces.length));
+    }
     // 1{,}000 is one number
     for (const comma of [...math.querySelectorAll('mtext')].filter((t) => t.textContent === COMMA_MARKER)) {
       const before = comma.previousElementSibling;
@@ -783,7 +877,7 @@ window.addEventListener('DOMContentLoaded', () => {
         if (el.children.length === count - 1) el.prepend(el.ownerDocument.createElementNS(MATHML_NS, 'mrow'));
       }
     }
-    prescriptsToMultiscripts(math);
+    prescriptsToMultiscripts(math, target);
     // \binom writes a table with no cells (<mtr><mi>n</mi></mtr>); MathML's binomial is a
     // fraction with no line. Other tables get their missing cells.
     for (const table of math.querySelectorAll('mtable')) {
@@ -829,10 +923,10 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 
   // Scripts on an empty base before something are prescripts: {}^{3}\mathrm{He} and
-  // {}_{92}^{235}U become <mmultiscripts>. Word draws any empty slot as a box (an empty base, or
-  // <none/> for the missing prescript), so that slot gets an invisible copy of the other script.
-  // The importer reads a phantom prescript as empty.
-  function prescriptsToMultiscripts(math) {
+  // {}_{92}^{235}U become <mmultiscripts>, with <none/> for a missing prescript. Word draws any
+  // empty slot as a box (an empty base, or <none/>), so for Word that slot gets an invisible copy
+  // of the other script. The importer reads a phantom prescript as empty.
+  function prescriptsToMultiscripts(math, target) {
     const SCRIPTS = new Set(['msub', 'msup', 'msubsup']);
     // [subscript, superscript] of an msub, msup or msubsup, null where there is none
     const scriptsOf = (el) => ({
@@ -853,6 +947,7 @@ window.addEventListener('DOMContentLoaded', () => {
         return el;
       };
       const slot = (el) => el ?? element('none');
+      const missing = (other) => (target === 'word' ? element('mphantom', other.cloneNode(true)) : element('none'));
       // Invisible operators between the prescripts and the base go too
       while (script.nextElementSibling !== next) script.nextElementSibling.remove();
       const [preSub, preSup] = scriptsOf(script);
@@ -863,13 +958,134 @@ window.addEventListener('DOMContentLoaded', () => {
         post ? next.firstElementChild : next,
         ...(post ? post.map(slot) : []),
         element('mprescripts'),
-        preSub ?? element('mphantom', preSup.cloneNode(true)),
-        preSup ?? element('mphantom', preSub.cloneNode(true)),
+        preSub ?? missing(preSup),
+        preSup ?? missing(preSub),
       );
       // A base with scripts was taken apart; a plain base has already moved
       if (post) next.remove();
       script.replaceWith(multi);
     }
+  }
+
+  // --- MathML for Word ---
+  // Word's MathML import (mathml2omml.xsl in Word.app) drops <mspace>, sets an <mo> in italic,
+  // draws ‾ as a short accent, a brace as a small symbol unless accent="false", and the
+  // sans-serif and monospace characters (𝖠, 𝚡) as plain italic letters.
+
+  // Space characters for widths in em; Word keeps spaces only as text
+  const SPACE_CHARACTERS = [[1 / 6, '\u2009'], [2 / 9, '\u205F'], [5 / 18, '\u2005'], [1 / 2, '\u2002']];
+  // Mathematical Alphanumeric Symbols Word can't draw, and the mathvariant that replaces them
+  const WORD_VARIANTS = [
+    [0x1D5A0, 0x1D5D3, 'sans-serif'], [0x1D5D4, 0x1D607, 'bold-sans-serif'],
+    [0x1D608, 0x1D63B, 'sans-serif-italic'], [0x1D63C, 0x1D66F, 'sans-serif-bold-italic'],
+    [0x1D670, 0x1D6A3, 'monospace'], [0x1D7E2, 0x1D7EB, 'sans-serif'], [0x1D7EC, 0x1D7F5, 'bold-sans-serif'],
+    [0x1D7F6, 0x1D7FF, 'monospace'],
+  ];
+  const BRACES = new Set(['\u23DE', '\u23DF', '\u23B4', '\u23B5', '\u23DC', '\u23DD']);
+  const OPENING_FENCES = { '(': ')', '[': ']' };
+
+  function wordCompatible(math) {
+    const doc = math.ownerDocument;
+    const element = (name, ...children) => {
+      const el = doc.createElementNS(MATHML_NS, name);
+      el.append(...children);
+      return el;
+    };
+
+    for (const space of [...math.querySelectorAll('mspace')]) {
+      const characters = spaceCharacters(lengthInEm(space.getAttribute('width')));
+      if (characters) space.replaceWith(element('mtext', characters));
+      else space.remove();
+    }
+
+    // \sin and \lim are <mo>sin</mo>: Word sets an operator in italic. As <mi>, followed by
+    // U+2061 and its argument in one <mrow>, Word makes a function: upright, with a space.
+    const names = new Set();
+    for (const mo of [...math.querySelectorAll('mo')].filter((mo) => /^[A-Za-z]{2,}$/.test(mo.textContent.trim()))) {
+      const mi = element('mi', mo.textContent.trim());
+      names.add(mi);
+      mo.replaceWith(mi);
+    }
+    for (const name of names) {
+      // The name with its scripts: \sin^2, \log_2, \lim_{n\to\infty}
+      const scripted = name.parentElement !== math && name === name.parentElement.firstElementChild &&
+        /^(msub|msup|msubsup|munder|mover|munderover)$/.test(name.parentElement.localName);
+      const fn = scripted ? name.parentElement : name;
+      while (isInvisible(fn.nextElementSibling)) fn.nextElementSibling.remove();
+      const next = fn.nextElementSibling;
+      // \arg\min: two names in a row get a thin space instead
+      if (names.has(next)) {
+        fn.after(element('mtext', '\u2009'));
+        continue;
+      }
+      // Nothing to apply to: an operator, or a space (\arg\,\min)
+      if (!next || (next.localName === 'mo' && !OPENING_FENCES[next.textContent.trim()]) ||
+        next.localName === 'mspace' || (next.localName === 'mtext' && /^\s+$/.test(next.textContent))) continue;
+      let argument = next;
+      const close = OPENING_FENCES[next.textContent.trim()];
+      if (next.localName === 'mo' && close) {
+        // (…) up to its closing parenthesis
+        const parts = [next];
+        let depth = 1;
+        for (let el = next.nextElementSibling; el && depth; el = el.nextElementSibling) {
+          parts.push(el);
+          const text = el.localName === 'mo' ? el.textContent.trim() : '';
+          if (text === next.textContent.trim()) depth++;
+          if (text === close) depth--;
+        }
+        if (depth) continue;
+        argument = element('mrow');
+        fn.after(argument);
+        argument.append(...parts);
+      }
+      const application = element('mrow');
+      fn.replaceWith(application);
+      application.append(fn, element('mo', '\u2061'), argument);
+    }
+
+    // \overline and \underline: a bar (m:bar) only without accent and with ¯ or U+0332
+    for (const bar of math.querySelectorAll('mover[accent="true"], munder[accentunder="true"]')) {
+      const mark = bar.lastElementChild;
+      if (bar.children.length !== 2 || mark.localName !== 'mo' || mark.textContent !== '\u203E') continue;
+      bar.removeAttribute(bar.localName === 'mover' ? 'accent' : 'accentunder');
+      mark.textContent = bar.localName === 'mover' ? '\u00AF' : '\u0332';
+    }
+    // Braces stretch (m:groupChr) with accent="false" and an <mrow> under or over them
+    for (const brace of math.querySelectorAll('mover, munder')) {
+      const mark = brace.lastElementChild;
+      if (brace.children.length !== 2 || mark.localName !== 'mo' || !BRACES.has(mark.textContent.trim())) continue;
+      brace.setAttribute(brace.localName === 'mover' ? 'accent' : 'accentunder', 'false');
+      if (brace.firstElementChild.localName !== 'mrow') brace.prepend(element('mrow', brace.firstElementChild));
+    }
+
+    for (const token of math.querySelectorAll('mi, mn')) {
+      const chars = [...token.textContent];
+      const variants = chars.map((ch) => {
+        const code = ch.codePointAt(0);
+        return WORD_VARIANTS.find(([from, to]) => code >= from && code <= to)?.[2];
+      });
+      if (!chars.length || !variants.every((v) => v && v === variants[0])) continue;
+      token.textContent = token.textContent.normalize('NFKC');
+      token.setAttribute('mathvariant', variants[0]);
+    }
+  }
+
+  // A MathML length in em (MathML 2 names, em, ex, mu, pt, px), or null
+  function lengthInEm(width) {
+    if (!width) return null;
+    const named = NAMED_SPACES[width.replace(/^negative/, '')];
+    if (named) return (width.startsWith('negative') ? -1 : 1) * named / 18;
+    const match = width.trim().match(/^(-?[\d.]+)\s*([a-z]*)$/);
+    return match ? parseFloat(match[1]) * (SPACE_UNITS[match[2] || 'em'] ?? 1) : null;
+  }
+
+  // Space characters about as wide as em: em spaces, then the closest smaller space. '' for none.
+  function spaceCharacters(em) {
+    if (!(em > 0)) return '';
+    const whole = Math.floor(em + 0.05);
+    const rest = em - whole;
+    const closest = SPACE_CHARACTERS.reduce((best, space) => (Math.abs(space[0] - rest) < Math.abs(best[0] - rest) ? space : best));
+    return '\u2003'.repeat(whole) + (rest > 0.08 ? closest[1] : '');
   }
 
   // Bold or script letters, digits and text (operators stay as they are, like in LaTeX).
@@ -1024,6 +1240,32 @@ window.addEventListener('DOMContentLoaded', () => {
     return out;
   }
 
+  // --- MathML target ---
+
+  // 'web' or 'word', remembered between launches
+  const TARGET_KEY = 'mathmlTarget';
+  let mathmlTarget = 'web';
+  try {
+    if (localStorage.getItem(TARGET_KEY) === 'word') mathmlTarget = 'word';
+  } catch {}
+
+  function showTarget() {
+    for (const button of targetButtons) button.setAttribute('aria-pressed', String(button.dataset.target === mathmlTarget));
+  }
+  showTarget();
+
+  for (const button of targetButtons) {
+    // Keep focus (and the selection) in the editor
+    button.addEventListener('mousedown', (e) => e.preventDefault());
+    button.addEventListener('click', () => {
+      mathmlTarget = button.dataset.target;
+      showTarget();
+      try {
+        localStorage.setItem(TARGET_KEY, mathmlTarget);
+      } catch {}
+    });
+  }
+
   // --- Namespace prefix ---
 
   function isValidXmlPrefix(p) {
@@ -1088,7 +1330,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     const fmt = detectFormat(text);
     if (fmt === 'latex') {
-      mathField.setValue(text);
+      setEditorValue(text);
     } else {
       // Auto-detect and set namespace prefix
       const detectedPrefix = detectNsPrefix(text);
@@ -1102,7 +1344,7 @@ window.addEventListener('DOMContentLoaded', () => {
         showImportError('Invalid MathML — could not parse');
         return;
       }
-      mathField.setValue(latex);
+      setEditorValue(latex);
     }
 
     finishImport();
@@ -1170,7 +1412,7 @@ window.addEventListener('DOMContentLoaded', () => {
     editorContainer.classList.remove('reading');
     imageBtn.disabled = false;
     if (result.latex) {
-      mathField.setValue(result.latex);
+      setEditorValue(result.latex);
       finishImport();
     } else if (result.error) {
       openImport();
@@ -1352,8 +1594,10 @@ window.addEventListener('DOMContentLoaded', () => {
         return tokenElementToLatex(node);
 
       case 'mtext': {
-        // Characters LaTeX reads as syntax, even in text
-        const text = node.textContent.replace(/[{}$%#&_]/g, '\\$&').replace(/\\(?![{}$%#&_])/g, '\\textbackslash ');
+        const spaces = textSpaceLatex(node.textContent);
+        if (spaces !== null) return spaces;
+        // Characters LaTeX reads as syntax, even in text; no-break spaces keep a space at the ends
+        const text = node.textContent.replace(/\u00A0/g, ' ').replace(/[{}$%#&_]/g, '\\$&').replace(/\\(?![{}$%#&_])/g, '\\textbackslash ');
         return isBold(mathvariantOf(node)) ? `\\textbf{${text}}` : `\\text{${text}}`;
       }
 
@@ -1416,7 +1660,7 @@ window.addEventListener('DOMContentLoaded', () => {
         return multiscriptsLatex(node);
 
       case 'mtable':
-        return tableLatex(node, 'matrix');
+        return tableLatex(node, tableEnvironment(node));
 
       case 'mfenced': {
         const open = node.getAttribute('open') ?? '(';
@@ -1520,6 +1764,17 @@ window.addEventListener('DOMContentLoaded', () => {
     return `\\phantom{${content}}`;
   }
 
+  // Columns aligned right, left, right, left… are aligned equations (MathLive, MathJax); one
+  // centered column in display style is gathered
+  function tableEnvironment(table) {
+    const columns = (table.getAttribute('columnalign') ?? '').trim().split(/\s+/);
+    if (columns.length >= 2 && columns.every((align, i) => align === (i % 2 ? 'left' : 'right'))) return 'aligned';
+    const rows = [...table.children].filter((row) => row.localName === 'mtr');
+    if (table.getAttribute('displaystyle') === 'true' && rows.every((row) => row.children.length === 1) &&
+      ['', 'center'].includes(columns[0])) return 'gathered';
+    return 'matrix';
+  }
+
   function tableLatex(table, environment) {
     const rows = [...table.children]
       .filter((row) => row.localName === 'mtr' || row.localName === 'mlabeledtr')
@@ -1549,18 +1804,29 @@ window.addEventListener('DOMContentLoaded', () => {
   };
   const SPACE_UNITS = { em: 1, ex: 0.5, mu: 1 / 18, pt: 0.1, px: 1 / 16 };
 
+  // Space characters' widths in em (MathML for Word writes spaces as text)
+  const CHARACTER_SPACES = {
+    '\u2003': 1, '\u2002': 1 / 2, '\u2007': 1 / 2, '\u2004': 1 / 3, '\u2005': 5 / 18, '\u2008': 1 / 4,
+    '\u205F': 2 / 9, '\u2009': 1 / 6, '\u2006': 1 / 6, '\u200A': 1 / 12,
+  };
+
+  // LaTeX for an <mtext> of only spaces (\ for a normal space, \, for a thin one), or null
+  function textSpaceLatex(text) {
+    if (!text || !/^\s+$/.test(text)) return null;
+    const chars = [...text];
+    if (chars.every((ch) => ch === ' ' || ch === '\u00A0')) return '\\ '.repeat(chars.length);
+    if (!chars.every((ch) => CHARACTER_SPACES[ch])) return null;
+    return nearestSpace(chars.reduce((sum, ch) => sum + CHARACTER_SPACES[ch], 0));
+  }
+
   // The LaTeX space closest to an <mspace> width (\, for 0.1667em, \quad for 1em)
   function spaceToLatex(width) {
     if (!width) return '';
-    const negative = width.startsWith('negative');
-    let em;
-    if (NAMED_SPACES[width.replace(/^negative/, '')]) {
-      em = (negative ? -1 : 1) * NAMED_SPACES[width.replace(/^negative/, '')] / 18;
-    } else {
-      const match = width.trim().match(/^(-?[\d.]+)\s*([a-z]*)$/);
-      if (!match) return '\;';
-      em = parseFloat(match[1]) * (SPACE_UNITS[match[2] || 'em'] ?? 1);
-    }
+    const em = lengthInEm(width);
+    return em === null ? '\\;' : nearestSpace(em);
+  }
+
+  function nearestSpace(em) {
     return SPACES.reduce((best, space) => (Math.abs(space[0] - em) < Math.abs(best[0] - em) ? space : best))[1];
   }
 

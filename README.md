@@ -14,6 +14,7 @@ A macOS menu bar utility for writing math and copying it as LaTeX or MathML.
 - **Import** LaTeX or MathML to edit visually -- auto-detects format and namespace prefixes
 - **Math from images** -- paste a screenshot, choose an image, or drop one on the menu bar icon, and a model on your Mac turns it into editable math: Apple Intelligence (macOS 27) or any vision model you've installed with [Ollama](https://ollama.com)
 - **Chemistry** -- a chemistry keyboard (isotopes, charges, reaction and equilibrium arrows, states, elements) and mhchem's `\ce{}` and `\pu{}`, all exported to MathML that Word displays without empty boxes
+- **MathML for the web or for Word** -- standard MathML for browsers and MathJax, or MathML shaped the way Word's equation import keeps it
 - **MathML namespace prefix** -- set a custom prefix like `m:` or `mml:` for output
 - **Expression history** -- recent expressions saved for quick re-use
 - **Global shortcut** -- `Cmd+Shift+M` summons MacMath from any app
@@ -159,13 +160,22 @@ Right-click the menu bar icon for **Launch at Login** and **Quit MacMath**.
 
 To import an existing expression, click **Import** and paste LaTeX or MathML. The format is detected automatically, including namespace-prefixed MathML like `<m:math>`.
 
+### MathML for the web or for Word
+
+Under the copy buttons, **MathML for** picks where the MathML is going. MacMath remembers the choice.
+
+- **Web** (the default) writes standard MathML for browsers, MathJax and XML files. Spaces such as `\,` and `\quad` are `<mspace>` elements.
+- **Word** writes MathML that Word's equation import keeps. Word drops `<mspace>`, so spaces become space characters (a thin space for `\,`, an em space for `\quad`; a negative space like `\!` is left out). Function names such as sin, log and lim come out upright with their space after them, `\overline` and `\underline` become bars, braces stretch over their contents, and `\mathsf` and `\mathtt` keep their fonts. Isotopes get an invisible filler instead of an empty slot, which Word shows as a box.
+
+Importing reads either kind back.
+
 ### Chemistry
 
 Open the virtual keyboard and choose **H₂O** for chemistry keys: isotopes (mass and atomic number on the left), upright element symbols, atom counts, charges, the hydrate dot, reaction, equilibrium and resonance arrows (also with conditions above and below), gas and precipitate arrows, states like (aq), and common constants. Hold a key for related ones, such as other elements or K<sub>sp</sub>. Press `Tab` to move to the next box in a key's template.
 
 MacMath also understands [mhchem](https://mhchem.github.io/MathJax-mhchem/): `\ce{2H2 + O2 -> 2H2O}` or `\pu{123 kJ/mol}`. Paste it into the editor or load it with **Import**. Typing `\ce{…}` straight into the editor works only without spaces (`\ce{H2O}`), because a space ends a typed command. Copy LaTeX keeps `\ce{}`; Copy MathML writes the formula out in full.
 
-Isotopes like ³He are copied as MathML prescripts (`<mmultiscripts>`). Word draws an empty script slot as a box, so the missing one is filled with an invisible copy of the other.
+Isotopes like ³He are copied as MathML prescripts (`<mmultiscripts>`). For Word, the missing prescript is an invisible copy of the other, because Word draws an empty slot as a box.
 
 ### Reading math from images
 

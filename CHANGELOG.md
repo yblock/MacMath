@@ -4,6 +4,27 @@ All notable changes to MacMath. Versions match the `version` in `package.json`.
 
 **Updating?** Get the latest code, then run `npm install` before `npm start` or `npm run build`. See [Updating MacMath](README.md#updating-macmath).
 
+## 1.6.0 - 2026-10-14
+
+### Added
+
+- **MathML for: Web | Word**, under the copy buttons. Web (the default) is standard MathML for browsers and MathJax. Word writes MathML that Word's equation import keeps:
+  - Spaces (`\,`, `\;`, `\quad`, `\hspace{…}`) are space characters. Word drops `<mspace>`, so `0.002\,\text{cm}` pasted as "0.002cm".
+  - Function names (sin, cos, log, ln, lim, max, det…) are upright with a space after them. Before, Word set them in italic and ran them into their argument ("𝑠𝑖𝑛𝜃").
+  - `\overline` is a bar over the whole expression (it was a short mark), `\underline` a bar under it, and `\overbrace`/`\underbrace` stretch over their contents (they were small symbols).
+  - `\mathsf` and `\mathtt` keep their fonts (Word showed plain italic letters).
+  - Isotopes keep the invisible filler in the empty prescript slot; Web now writes the standard `<none/>`.
+
+### Fixed
+
+- Aligned and gathered equations (`aligned`, `align`, `gathered`, `split` and the like) are copied with `displaystyle="true"`, so their fractions are full size as in LaTeX. Before, browsers drew them small.
+- Importing aligned equations gives `aligned` (or `gathered`) again instead of `matrix`.
+- `\ ` and `~` are copied as `<mtext>&#160;</mtext>`. Before, they were a bare space between elements, which isn't valid MathML.
+- `\hspace{2em}`, `\kern`, `\mkern` and `\mspace` keep their width in copied MathML (it was 0).
+- A space at the start or end of `\text{}` (`\text{if } x`) is copied as a no-break space; MathML renderers and Word dropped the normal space.
+- Importing MathML with an unreadable `<mspace>` width gave a stray ";" instead of `\;`.
+- After loading or pasting `\begin{align}…\end{align}` (or `gather`, `equation`, `multline`), everything put in the editor afterwards stayed inside that environment, so importing `x+1` gave `\begin{align}x+1 & \end{align}`. These environments now come in as `aligned`, `gathered` or plain math, which look the same.
+
 ## 1.5.0 - 2026-10-14
 
 Run `npm install` after updating to this version: it builds a new helper for reading images.

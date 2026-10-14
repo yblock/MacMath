@@ -636,6 +636,36 @@
       color: var(--text-placeholder);
     }
 
+    .namespace-gap {
+      margin-left: 8px;
+    }
+
+    .target-toggle {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      overflow: hidden;
+    }
+
+    .target-toggle button {
+      padding: 2px 8px;
+      border: none;
+      background: var(--surface);
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .target-toggle button + button {
+      border-left: 1px solid var(--border);
+    }
+
+    .target-toggle button[aria-pressed="true"] {
+      background: var(--accent);
+      color: #fff;
+    }
+
     .namespace-example {
       font-size: 10px;
       color: var(--text-placeholder);
@@ -786,7 +816,12 @@
   </div>
 
   <div class="namespace-row">
-    <span class="namespace-label">MathML prefix:</span>
+    <span class="namespace-label">MathML for:</span>
+    <div class="target-toggle" role="group" aria-label="MathML for">
+      <button type="button" data-target="web" aria-pressed="true" title="Browsers, MathJax and XML: spaces as &lt;mspace&gt;">Web</button>
+      <button type="button" data-target="word" aria-pressed="false" title="Microsoft Word: spaces as characters, upright function names, bars and stretchy braces Word keeps">Word</button>
+    </div>
+    <span class="namespace-label namespace-gap">Prefix:</span>
     <input class="namespace-input" id="nsPrefix" type="text" placeholder="none" />
     <span class="namespace-example" id="nsExample">&lt;math&gt;</span>
   </div>
