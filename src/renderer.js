@@ -1743,6 +1743,8 @@ window.addEventListener('DOMContentLoaded', () => {
     // Capital Greek is upright already (export writes it as mathvariant="normal"), so only an
     // italic one needs a command
     if (node.localName === 'mi' && variant === 'italic' && CAPITAL_GREEK.test(text)) return `\\mathit{${latex.trim()}}`;
+    // An italic word stays one identifier (\mathit{unc}), not a product of letters
+    if (node.localName === 'mi' && variant === 'italic' && /^[A-Za-z]{2,}$/.test(text)) return `\\mathit{${text}}`;
     const letters = /^[A-Za-z0-9]+$/.test(text);
     if (letters && VARIANT_COMMANDS[variant] && !(variant === 'normal' && node.localName !== 'mi')) {
       return `${VARIANT_COMMANDS[variant]}{${text}}`;

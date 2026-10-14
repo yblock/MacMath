@@ -30,12 +30,13 @@ files:
   - package.json
   - "src/**/*"
   - "!src/image.png"
-# The image recognition helper, outside the asar so it can run. Missing when it wasn't
-# built (no macOS 27 SDK); the app then says image recognition isn't available.
+# The native helpers, outside the asar so they can run. mathocr is missing when it wasn't
+# built (no macOS 27 SDK); the app then says Apple's image recognition isn't available.
 extraResources:
   - from: native/bin
     to: .
     filter:
       - mathocr
+      - textboxes
 extraMetadata:
   main: main.js

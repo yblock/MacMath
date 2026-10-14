@@ -175,7 +175,7 @@ MacMath can turn an image of math into an expression you can edit. The image is 
 - Click **Import**, then **Image…**, and choose a file
 - Drag an image file onto the MacMath icon in the menu bar
 
-A spinner covers the editor while the image is read, which takes a few seconds (longer the first time, while the model loads). The result replaces what's in the editor. Before the model sees the image, MacMath crops it to the math, enlarges small formulas and fills a transparent background with white. Any image format macOS opens works, including HEIC, TIFF and WebP. MacMath tidies the LaTeX the model writes, for example `pmatrix` instead of `\left(\begin{array}…\right)`. Check the result before copying: models can misread symbols, especially in handwriting.
+A spinner covers the editor while the image is read, which takes a few seconds (longer the first time, while the model loads). The result replaces what's in the editor. Before the model sees the image, MacMath crops it to the math, enlarges small formulas and fills a transparent background with white. Any image format macOS opens works, including HEIC, TIFF and WebP. MacMath tidies the LaTeX the model writes, for example `pmatrix` instead of `\left(\begin{array}…\right)`. Models write every word as upright text, so MacMath measures the slant of each word in the image and keeps italic words italic (`\mathit{unc}` in *% unc r*); this uses macOS's text recognition and a small helper that `npm install` builds with Xcode or the Command Line Tools. Check the result before copying: models can misread symbols, especially in handwriting.
 
 Choose the model under **Import** → **Read images with**:
 
@@ -212,7 +212,7 @@ npm run build:ocr
 - `npm start` runs the app directly
 - `npm run build` creates a local `.dmg`
 - `npm run build:dir` creates the `.app` bundle without building the `.dmg`
-- `npm run build:ocr` builds the helper that reads math from images (`npm install` and the build commands run it too)
+- `npm run build:ocr` builds the helpers for reading math from images (`npm install` and the build commands run it too)
 
 ## Troubleshooting
 

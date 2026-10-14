@@ -4,6 +4,15 @@ All notable changes to MacMath. Versions match the `version` in `package.json`.
 
 **Updating?** Get the latest code, then run `npm install` before `npm start` or `npm run build`. See [Updating MacMath](README.md#updating-macmath).
 
+## 1.5.0 - 2026-10-14
+
+Run `npm install` after updating to this version: it builds a new helper for reading images.
+
+### Fixed
+
+- Reading an image: italic words stay italic. Models write every word as upright `\text{}`, so *% unc r* came back as % unc *r*. MacMath now finds each word with macOS's text recognition, measures its slant and writes italic words as `\mathit{unc}`. Upright words (`\text{cm}`, `\text{at least one head}`) stay as they are.
+- Importing MathML: a multi-letter italic identifier (`<mi mathvariant="italic">unc</mi>`) imports as `\mathit{unc}`. Before, it became three separate letters.
+
 ## 1.4.0 - 2026-10-13
 
 Run `npm install` after updating to this version: it adds mhchem's parser.

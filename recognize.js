@@ -93,20 +93,20 @@ function setEngine(engine) {
 
 // --- Apple (native helper) ---
 
-function helperPath() {
+function helperPath(name) {
   return app.isPackaged
-    ? path.join(process.resourcesPath, 'mathocr')
-    : path.join(__dirname, 'native', 'bin', 'mathocr');
+    ? path.join(process.resourcesPath, name)
+    : path.join(__dirname, 'native', 'bin', name);
 }
 
-// Resolves with the helper's JSON reply, or { error } when it can't run
-function runHelper(args) {
-  const helper = helperPath();
+// Resolves with mathocr's JSON reply, or { error } when it can't run
+function runHelper(args, name = 'mathocr') {
+  const helper = helperPath(name);
   if (!fs.existsSync(helper)) {
-    return Promise.resolve({
+    return Promise.resolve(name === 'mathocr' ? {
       available: false,
       reason: 'Apple Intelligence support isn\'t built into this copy of MacMath. It needs macOS 27; see the README.'
-    });
+    } : { error: `${name} isn't built into this copy of MacMath.` });
   }
   return new Promise((resolve) => {
     execFile(helper, args, { timeout: HELPER_TIMEOUT }, (err, stdout) => {
@@ -356,10 +356,7 @@ function inkBounds(pixels, width, height, background) {
   let left = width, right = -1, top = height, bottom = -1;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const i = (y * width + x) * 4;
-      if (Math.abs(pixels[i] - background[0]) <= INK_THRESHOLD &&
-        Math.abs(pixels[i + 1] - background[1]) <= INK_THRESHOLD &&
-        Math.abs(pixels[i + 2] - background[2]) <= INK_THRESHOLD) continue;
+      if (!isInk(pixels, (y * width + x) * 4, background)) continue;
       if (x < left) left = x;
       if (x > right) right = x;
       if (y < top) top = y;
@@ -367,6 +364,12 @@ function inkBounds(pixels, width, height, background) {
     }
   }
   return right < 0 ? null : { x: left, y: top, width: right - left + 1, height: bottom - top + 1 };
+}
+
+function isInk(pixels, i, background) {
+  return Math.abs(pixels[i] - background[0]) > INK_THRESHOLD ||
+    Math.abs(pixels[i + 1] - background[1]) > INK_THRESHOLD ||
+    Math.abs(pixels[i + 2] - background[2]) > INK_THRESHOLD;
 }
 
 function pad(image, margin, [b, g, r]) {
@@ -384,6 +387,86 @@ function pad(image, margin, [b, g, r]) {
     source.copy(out, ((y + margin) * outWidth + margin) * 4, y * width * 4, (y + 1) * width * 4);
   }
   return nativeImage.createFromBitmap(out, { width: outWidth, height: height + 2 * margin });
+}
+
+// --- Italic words ---
+
+// The models write every word as \text{}, which is upright, even where the image sets it in
+// italics like the variables around it (% unc r). Asked directly, qwen2.5vl:7b judged 2 of 5
+// italic words right, and a prompt rule made it set single letters upright instead. So measure
+// the slant: native/textboxes finds each word's box with Vision, and the shear at which the
+// strokes line up best is the slant. On Arial and Times, italic words came out 9° to 13°,
+// upright ones -3° to 0°.
+const ITALIC_SLANT = 5;
+const TEXT_GROUP = /\\text\{([^{}\\$]*)\}/g;
+
+// \text{unc} → \mathit{unc} for every \text{} whose words are all italic in the image
+async function italicizeWords(latex, png) {
+  const words = new Set();
+  for (const [, content] of latex.matchAll(TEXT_GROUP)) {
+    for (const word of content.trim().split(/\s+/)) if (/^[A-Za-z]+$/.test(word)) words.add(word.toLowerCase());
+  }
+  if (!words.size) return latex;
+
+  const file = path.join(app.getPath('temp'), `macmath-words-${process.pid}-${Date.now()}.png`);
+  await fs.promises.writeFile(file, png);
+  const found = await runHelper([file], 'textboxes').finally(() => fs.promises.unlink(file).catch(() => {}));
+  if (!found.words) return latex;
+
+  const image = nativeImage.createFromBuffer(png);
+  const { width, height } = image.getSize();
+  const pixels = image.toBitmap();
+  const background = backgroundColor(pixels, width, height) ?? [255, 255, 255];
+  const slants = new Map();
+  for (const box of found.words) {
+    const word = box.text.toLowerCase();
+    // Vision sometimes gives a word the box of its whole line
+    if (!words.has(word) || box.width > word.length * box.height) continue;
+    const slant = slantOf(pixels, width, height, background, box);
+    if (slant !== null) slants.set(word, [...slants.get(word) ?? [], slant]);
+  }
+  const isItalic = (word) => {
+    const measured = slants.get(word.toLowerCase());
+    return measured && measured.reduce((a, b) => a + b) / measured.length >= ITALIC_SLANT;
+  };
+
+  return latex.replace(TEXT_GROUP, (group, content, offset) => {
+    const parts = content.trim().split(/\s+/);
+    if (!parts.every(isItalic)) return group;
+    // The spaces inside \text{} become thin spaces, unless an operator or the end is next to them
+    const before = latex[offset - 1] ?? '';
+    const after = latex[offset + group.length] ?? '';
+    const lead = /^\s/.test(content) && /[A-Za-z0-9})%]/.test(before) ? '\\,' : '';
+    const trail = /\s$/.test(content) && /[A-Za-z0-9\\({]/.test(after) ? '\\,' : '';
+    return lead + parts.map((word) => `\\mathit{${word}}`).join('\\,') + trail;
+  });
+}
+
+// The slant of the letters in a box, in degrees to the right, or null when the box is empty.
+// Shearing italic letters upright stacks their strokes into the fewest, fullest columns.
+function slantOf(pixels, width, height, background, box) {
+  const left = Math.max(0, Math.round(box.x - box.height / 3));
+  const right = Math.min(width, Math.round(box.x + box.width + box.height / 3));
+  const top = Math.max(0, box.y);
+  const bottom = Math.min(height, box.y + box.height);
+  const ink = [];
+  for (let y = top; y < bottom; y++) {
+    for (let x = left; x < right; x++) if (isInk(pixels, (y * width + x) * 4, background)) ink.push(x, bottom - y);
+  }
+  if (ink.length < 40) return null;
+  let best = null;
+  for (let degrees = -10; degrees <= 30; degrees++) {
+    const shear = Math.tan(degrees * Math.PI / 180);
+    const columns = new Map();
+    for (let i = 0; i < ink.length; i += 2) {
+      const column = Math.round(ink[i] - ink[i + 1] * shear);
+      columns.set(column, (columns.get(column) ?? 0) + 1);
+    }
+    let score = 0;
+    for (const n of columns.values()) score += n * n;
+    if (!best || score > best.score) best = { score, degrees };
+  }
+  return best.degrees;
 }
 
 // --- Engines ---
@@ -788,8 +871,9 @@ async function recognizeImage(file) {
       ? await recognizeWithApple(png)
       : await recognizeWithOllama(engine.slice('ollama:'.length), png);
     if (result.error) return { error: result.error };
-    const latex = cleanLatex(result.text);
-    return latex ? { latex } : { error: 'No math found in the image.' };
+    const cleaned = cleanLatex(result.text);
+    if (!cleaned) return { error: 'No math found in the image.' };
+    return { latex: await italicizeWords(cleaned, png).catch(() => cleaned) };
   } finally {
     recognizing = false;
   }
@@ -827,4 +911,4 @@ async function clipboardImage() {
   return { file, temporary: true };
 }
 
-module.exports = { prepareImage, startOllama, downloadRecommendedModel, unloadOllamaModel, cleanLatex, isRecognizing, clipboardImage, IMAGE_EXTENSIONS, isImageFile, listEngines, getEngine, setEngine, unavailableReason, recognizeImage };
+module.exports = { prepareImage, italicizeWords, startOllama, downloadRecommendedModel, unloadOllamaModel, cleanLatex, isRecognizing, clipboardImage, IMAGE_EXTENSIONS, isImageFile, listEngines, getEngine, setEngine, unavailableReason, recognizeImage };
