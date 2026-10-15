@@ -395,16 +395,104 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  function setEditorValue(latex) {
-    mathField.setValue(withoutRootEnvironments(latex));
+  // --- Arrays with more cells than columns ---
+
+  // MathLive moves the cells past an array's last column into a new row, and the MathML gets
+  // ? cells. Image models write such arrays (\begin{array}{rr} a&b&c), so the columns are
+  // widened to the longest row; the extra columns are centered.
+  function widenArrays(latex) {
+    for (const begin of [...latex.matchAll(/\\begin\s*\{array\}\s*\{/g)].reverse()) {
+      const open = begin.index + begin[0].length - 1;
+      const close = findClosingBrace(latex, open);
+      const rows = close < 0 ? null : arrayRowLengths(latex, close + 1);
+      if (!rows) continue;
+      const missing = Math.max(...rows) - arrayColumnCount(latex.slice(open + 1, close));
+      if (missing > 0) latex = latex.slice(0, close) + 'c'.repeat(missing) + latex.slice(close);
+    }
+    return latex;
   }
 
-  // Pasted LaTeX with one: capture phase, before MathLive's own paste handler
+  // Columns in an array's column spec: l c r and p{…} m{…} b{…} are columns; | : @{…} !{…}
+  // >{…} <{…} are not; *{3}{c} repeats
+  function arrayColumnCount(spec) {
+    let count = 0;
+    const group = (i) => {
+      const open = spec.indexOf('{', i);
+      const close = open < 0 ? -1 : findClosingBrace(spec, open);
+      return close < 0 ? null : { text: spec.slice(open + 1, close), end: close };
+    };
+    for (let i = 0; i < spec.length; i++) {
+      const ch = spec[i];
+      if ('lcr'.includes(ch)) {
+        count++;
+      } else if ('pmb@!<>'.includes(ch)) {
+        if ('pmb'.includes(ch)) count++;
+        i = group(i + 1)?.end ?? spec.length;
+      } else if (ch === '*') {
+        const times = group(i + 1);
+        const repeated = times && group(times.end + 1);
+        if (!repeated) break;
+        count += (parseInt(times.text, 10) || 0) * arrayColumnCount(repeated.text);
+        i = repeated.end;
+      }
+    }
+    return count;
+  }
+
+  // Cells in each row of the array body that starts at `from`, up to its \end, or null when it
+  // has none. Cells of nested environments and groups don't count.
+  function arrayRowLengths(latex, from) {
+    const rows = [1];
+    let braces = 0;
+    let environments = 0;
+    for (let i = from; i < latex.length; i++) {
+      const ch = latex[i];
+      if (latex.startsWith('\\begin', i)) {
+        environments++;
+        i += 5;
+      } else if (latex.startsWith('\\end', i)) {
+        if (!environments && !braces) return rows;
+        environments--;
+        i += 3;
+      } else if (ch === '\\') {
+        if (latex[i + 1] === '\\' && !braces && !environments) rows.push(1);
+        i++;
+      } else if (ch === '{') {
+        braces++;
+      } else if (ch === '}') {
+        braces--;
+      } else if (ch === '&' && !braces && !environments) {
+        rows[rows.length - 1]++;
+      }
+    }
+    return null;
+  }
+
+  // LaTeX from outside (import, recognition, paste) as the editor can hold it
+  function editorLatex(latex) {
+    return widenArrays(withoutRootEnvironments(latex));
+  }
+
+  function setEditorValue(latex) {
+    mathField.setValue(editorLatex(latex));
+  }
+
+  // Pasted LaTeX that needs either, and equations copied from Word (their plain text is linear
+  // text like "v=ma"): capture phase, before MathLive's own paste handler and the image paste
   window.addEventListener('paste', (e) => {
-    if (e.target !== mathField) return;
-    const text = e.clipboardData?.getData('text/plain') ?? '';
-    const latex = withoutRootEnvironments(text);
-    if (latex === text) return;
+    if (e.target !== mathField && e.target !== importInput) return;
+    const fromWord = wordEquationsLatex(e.clipboardData?.getData('text/html'));
+    if (e.target === importInput) {
+      if (!fromWord) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      importInput.setRangeText(fromWord, importInput.selectionStart, importInput.selectionEnd, 'end');
+      importInput.dispatchEvent(new Event('input'));
+      return;
+    }
+    const text = fromWord ?? e.clipboardData?.getData('text/plain') ?? '';
+    const latex = editorLatex(text);
+    if (latex === text && !fromWord) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     mathField.insert(latex, { format: 'latex', selectionMode: 'after' });
@@ -649,6 +737,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const COMMA_MARKER = 'MacMathComma';
   const SPACE_MARKER = 'MacMathSpace';
   const SIZED_SPACE = /\\(?:hspace\*?|kern|mkern|mspace|hskip)\s*(?:\{\s*(-?[\d.]+)\s*([a-z]{2})\s*\}|(-?[\d.]+)\s*([a-z]{2}))/g;
+  // \rule{width}{height}, without the optional raise
+  const RULE = /\\rule\s*\{\s*(-?[\d.]+)\s*([a-z]{2})\s*\}\s*\{\s*(-?[\d.]+)\s*([a-z]{2})\s*\}/g;
   const EXPORT_REWRITES = [
     [/\{,\}/g, `\\text{${COMMA_MARKER}}`],
     [/\\widehat(?![a-zA-Z])/g, '\\hat'],
@@ -664,6 +754,10 @@ window.addEventListener('DOMContentLoaded', () => {
     [/\\pmod\s*(\{[^{}]*\}|\\[a-zA-Z]+|\S)/g, '\\quad(\\operatorname{mod}\\,$1)'],
     [/\\bmod(?![a-zA-Z])/g, '\\operatorname{mod}'],
     [/\\math(bin|rel|op|ord|open|close|punct|inner)\s*\{/g, '{'],
+    // \rule comes out as nothing. A thin one on the baseline is a fill-in blank (Word draws an
+    // underlined space as one); raised rules, struts and boxes are left alone
+    [RULE, (rule, width, widthUnit, height, heightUnit) => (
+      width > 0 && height > 0 && height * (SPACE_UNITS[heightUnit] ?? Infinity) <= 0.1 ? `\\underline{\\hspace{${width}${widthUnit}}}` : rule)],
     // \hspace, \kern, \mkern, \mspace and \hskip come out with a width of 0
     [SIZED_SPACE, (_, a, b, c, d) => `{\\text{${SPACE_MARKER}${a ?? c}${b ?? d}}}`],
   ];
@@ -869,7 +963,9 @@ window.addEventListener('DOMContentLoaded', () => {
       const next = mo.nextElementSibling;
       const strayApplication = mo.textContent === '\u2061' && previous?.localName === 'mi' &&
         previous.textContent.length === 1 && !/^[([{]/.test(next?.firstElementChild?.textContent ?? next?.textContent ?? '');
-      if (ARITY[parent.localName] || strayApplication) mo.remove();
+      // 20\degree C and a typed 30° get invisible times around the degree sign
+      const besideDegree = mo.textContent === '\u2062' && [previous, next].some((el) => isDegree(el));
+      if (ARITY[parent.localName] || strayApplication || besideDegree) mo.remove();
     }
     // Scripts with no base ({}^{14}C, {}_nC_r) get an empty one
     for (const [name, count] of Object.entries(ARITY)) {
@@ -877,7 +973,22 @@ window.addEventListener('DOMContentLoaded', () => {
         if (el.children.length === count - 1) el.prepend(el.ownerDocument.createElementNS(MATHML_NS, 'mrow'));
       }
     }
+    degreesOnEmptyBase(math);
+    scriptsOntoPreviousBase(math);
     prescriptsToMultiscripts(math, target);
+    // Word draws an empty base as a box. A phantom x with no width ({\vphantom{x}}) is invisible and
+    // keeps the script at its height. The importer reads it as an empty base again.
+    if (target === 'word') {
+      for (const script of math.querySelectorAll('msub, msup, msubsup')) {
+        if (!isEmptyRow(script.firstElementChild)) continue;
+        const [phantom, padded, x] = ['mphantom', 'mpadded', 'mi'].map((name) => doc.createElementNS(MATHML_NS, name));
+        padded.setAttribute('width', '0');
+        x.textContent = 'x';
+        padded.append(x);
+        phantom.append(padded);
+        script.firstElementChild.replaceWith(phantom);
+      }
+    }
     // \binom writes a table with no cells (<mtr><mi>n</mi></mtr>); MathML's binomial is a
     // fraction with no line. Other tables get their missing cells.
     for (const table of math.querySelectorAll('mtable')) {
@@ -922,24 +1033,99 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  const isDegree = (el) => el?.localName === 'mi' && el.textContent === '\u00B0';
+  const isEmptyRow = (el) => el?.localName === 'mrow' && !el.childNodes.length;
+  // The script elements and [subscript, superscript] of each, null where there is none
+  const scriptsOf = (el) => ({
+    msub: [el.children[1], null],
+    msup: [null, el.children[1]],
+    msubsup: [el.children[1], el.children[2]],
+  })[el.localName];
+  const nextVisible = (el) => {
+    let next = el.nextElementSibling;
+    while (isInvisible(next)) next = next.nextElementSibling;
+    return next;
+  };
+  const previousVisible = (el) => {
+    let previous = el.previousElementSibling;
+    while (isInvisible(previous)) previous = previous.previousElementSibling;
+    return previous;
+  };
+  // Elements whose children are terms in a row. In an mfrac or msup they are fixed arguments:
+  // \frac{x}{{}^{2}} must not merge x into the denominator.
+  const ROW_ELEMENTS = new Set(['math', 'mrow', 'mtd', 'mstyle', 'msqrt', 'menclose', 'mpadded', 'mphantom']);
+  const inRow = (el) => ROW_ELEMENTS.has(el.parentElement?.localName);
+  // What prescriptsToMultiscripts takes as the base of scripts on an empty base, or null.
+  // Not an operator, and not a group in brackets: x{}^{2}(y) is x² times (y).
+  const prescriptBase = (script) => {
+    if (!inRow(script)) return null;
+    const next = nextVisible(script);
+    if (!next || ['mo', 'mspace'].includes(next.localName) || isEmptyRow(next.firstElementChild)) return null;
+    const first = next.localName === 'mrow' && next.firstElementChild;
+    if (first?.localName === 'mo' && /^[([{|\u2016\u27E8\u230A\u2308]$/.test(first.textContent)) return null;
+    return next;
+  };
+
+  // A degree sign on nothing ({}^{\circ}, {}^{\circ}\mathrm{C}, x{}^{\circ}) is the degree sign °,
+  // not a ring operator, and never a prescript on what follows. A subscript keeps the script.
+  function degreesOnEmptyBase(math) {
+    for (const msup of [...math.querySelectorAll('msup')]) {
+      if (!isEmptyRow(msup.firstElementChild)) continue;
+      let sup = msup.children[1];
+      while (sup.localName === 'mrow' && sup.children.length === 1) sup = sup.firstElementChild;
+      if (sup.localName !== 'mo' || sup.textContent !== '\u2218') continue;
+      const degree = msup.ownerDocument.createElementNS(MATHML_NS, 'mi');
+      degree.textContent = '\u00B0';
+      msup.replaceWith(degree);
+    }
+  }
+
+  // A script on an empty base that nothing follows belongs to what comes before it:
+  // \mathrm{CO_3{}^{2-}} is CO₃²⁻, x{}^{2} is x². Word draws the empty base as a box.
+  // When a base follows (x_i{}^{14}\mathrm{C}), the script is a prescript on it, as before.
+  function scriptsOntoPreviousBase(math) {
+    const doc = math.ownerDocument;
+    const element = (name, ...children) => {
+      const el = doc.createElementNS(MATHML_NS, name);
+      el.append(...children);
+      return el;
+    };
+    for (const script of [...math.querySelectorAll('msub, msup, msubsup')]) {
+      if (!script.isConnected || !isEmptyRow(script.firstElementChild) || !inRow(script) || prescriptBase(script)) continue;
+      const previous = previousVisible(script);
+      // A base is anything but an operator, except a closing fence: (a+b){}^{2}
+      if (!previous || previous.localName === 'mspace' ||
+        (previous.localName === 'mo' && !/^[)\]}|\u2016\u27E9\u230B\u2309]$/.test(previous.textContent))) continue;
+      const [sub, sup] = scriptsOf(script);
+      const [baseSub, baseSup] = SCRIPTS.has(previous.localName) ? scriptsOf(previous) : [null, null];
+      // CO_3 then ^{2-} make one msubsup, when the slot is still free
+      if ((sub && baseSub) || (sup && baseSup)) continue;
+      // Invisible operators between the base and its scripts go
+      while (script.previousElementSibling !== previous) script.previousElementSibling.remove();
+      const merged = SCRIPTS.has(previous.localName)
+        ? element('msubsup', previous.firstElementChild, baseSub ?? sub, baseSup ?? sup)
+        : element(script.localName, previous, ...[...script.children].slice(1));
+      if (previous.isConnected) previous.remove();
+      script.replaceWith(merged);
+      // x{}^{2} was a row of two; now it's one element, like x^{2}
+      const row = merged.parentElement;
+      if (row.localName === 'mrow' && row.children.length === 1 && row.parentElement) {
+        row.replaceWith(merged);
+      }
+    }
+  }
+
+  const SCRIPTS = new Set(['msub', 'msup', 'msubsup']);
+
   // Scripts on an empty base before something are prescripts: {}^{3}\mathrm{He} and
   // {}_{92}^{235}U become <mmultiscripts>, with <none/> for a missing prescript. Word draws any
   // empty slot as a box (an empty base, or <none/>), so for Word that slot gets an invisible copy
   // of the other script. The importer reads a phantom prescript as empty.
   function prescriptsToMultiscripts(math, target) {
-    const SCRIPTS = new Set(['msub', 'msup', 'msubsup']);
-    // [subscript, superscript] of an msub, msup or msubsup, null where there is none
-    const scriptsOf = (el) => ({
-      msub: [el.children[1], null],
-      msup: [null, el.children[1]],
-      msubsup: [el.children[1], el.children[2]],
-    })[el.localName];
-    const isEmptyRow = (el) => el?.localName === 'mrow' && !el.childNodes.length;
     for (const script of [...math.querySelectorAll('msub, msup, msubsup')]) {
       if (!script.isConnected || !isEmptyRow(script.firstElementChild)) continue;
-      let next = script.nextElementSibling;
-      while (isInvisible(next)) next = next.nextElementSibling;
-      if (!next || ['mo', 'mspace'].includes(next.localName) || isEmptyRow(next.firstElementChild)) continue;
+      const next = prescriptBase(script);
+      if (!next) continue;
       const doc = script.ownerDocument;
       const element = (name, ...children) => {
         const el = doc.createElementNS(MATHML_NS, name);
@@ -1522,6 +1708,257 @@ window.addEventListener('DOMContentLoaded', () => {
   window.electronAPI?.onRecognitionStarted?.(recognitionStarted);
   window.electronAPI?.onRecognitionResult?.(recognitionFinished);
 
+  // --- Equations copied from Word ---
+
+  // Word copies an equation as linear text ("v=ma", without its bold) and as HTML with the
+  // equation's OMML inside a conditional comment: <!--[if gte msEquation 12]><m:oMath>…
+  // The OMML becomes MathML here, and the MathML importer writes the LaTeX. (Word's own
+  // omml2mathml.xsl isn't used: its bold and script letters only work in an XSLT engine that
+  // counts UTF-16 code units, not in libxslt.)
+  const OMML_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
+
+  // The LaTeX of the equations in HTML from Word, one row each, or null when it has none
+  function wordEquationsLatex(html) {
+    const equations = html?.match(/<m:oMath[\s>][\s\S]*?<\/m:oMath>/g);
+    if (!equations) return null;
+    const rows = equations.map((omml) => {
+      // Word puts HTML formatting (<b>, <i>, <span>) between the OMML elements
+      const xml = toNumericEntities(omml.replace(/<(?!\/?m:)[^>]*>/g, '')).replace('<m:oMath', `<m:oMath xmlns:m="${OMML_NS}"`);
+      const doc = new DOMParser().parseFromString(xml, 'text/xml');
+      if (doc.querySelector('parsererror')) return null;
+      const math = doc.createElementNS(MATHML_NS, 'math');
+      math.append(...ommlToMathml(doc.documentElement));
+      return mathmlToLatex(new XMLSerializer().serializeToString(math));
+    }).filter(Boolean);
+    if (!rows.length) return null;
+    return rows.length === 1 ? rows[0] : `\\begin{gathered}${rows.join('\\\\')}\\end{gathered}`;
+  }
+
+  // An OMML property: <m:dPr><m:begChr m:val="["/></m:dPr> is ommlProperty(d, 'dPr', 'begChr').
+  // undefined when it isn't set; '' for one set without a value (<m:degHide/>).
+  function ommlProperty(el, properties, name) {
+    const container = [...el.children].find((c) => c.localName === properties);
+    const property = container && [...container.children].find((c) => c.localName === name);
+    if (!property) return undefined;
+    return property.getAttributeNS(OMML_NS, 'val') ?? property.getAttribute('m:val') ?? '';
+  }
+  const ommlOn = (value) => value !== undefined && !['0', 'off', 'false'].includes(value);
+
+  // Word's capital Greek letters are upright unless styled
+  const UPRIGHT_BY_DEFAULT = /^[\u0391-\u03A9]$/;
+  // mathvariant for a run's script (m:scr) and style (m:sty)
+  function ommlVariant(script = 'roman', style) {
+    const bold = style === 'b' || style === 'bi';
+    const italic = style === 'i' || style === 'bi';
+    switch (script) {
+      case 'script': return bold ? 'bold-script' : 'script';
+      case 'fraktur': return bold ? 'bold-fraktur' : 'fraktur';
+      case 'double-struck': return 'double-struck';
+      case 'monospace': return 'monospace';
+      case 'sans-serif':
+        return bold ? (italic ? 'sans-serif-bold-italic' : 'bold-sans-serif') : (italic ? 'sans-serif-italic' : 'sans-serif');
+      default:
+        return { b: 'bold', bi: 'bold-italic', p: 'normal' }[style] ?? null;
+    }
+  }
+
+  // MathML elements for an OMML element
+  function ommlToMathml(el) {
+    const doc = el.ownerDocument;
+    const mml = (name, ...children) => {
+      const node = doc.createElementNS(MATHML_NS, name);
+      node.append(...children);
+      return node;
+    };
+    const mo = (text) => mml('mo', text);
+    const child = (name) => [...el.children].find((c) => c.localName === name);
+    // An argument (m:e, m:num, m:sub…) as one element
+    const arg = (name) => {
+      const nodes = child(name) ? ommlToMathml(child(name)) : [];
+      return nodes.length === 1 ? nodes[0] : mml('mrow', ...nodes);
+    };
+    const isEmpty = (name) => !child(name) || !child(name).textContent.trim();
+    // Word's HTML has normal text (\text{if }) and spaces (\,) as bare text between the elements;
+    // line breaks and indents in the HTML are just whitespace
+    const contents = () => [...el.childNodes].flatMap((node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent.replace(/[ \t\r\n]+/g, ' ');
+        return /^ *$/.test(text) ? [] : [mml('mtext', text)];
+      }
+      return node.nodeType === Node.ELEMENT_NODE && !node.localName.endsWith('Pr') ? ommlToMathml(node) : [];
+    });
+
+    switch (el.localName) {
+      case 'r':
+        return ommlRun(el, mml);
+      case 'f': {
+        const type = ommlProperty(el, 'fPr', 'type');
+        if (type === 'lin') return [arg('num'), mo('/'), arg('den')];
+        const fraction = mml('mfrac', arg('num'), arg('den'));
+        if (type === 'noBar') fraction.setAttribute('linethickness', '0');
+        return [fraction];
+      }
+      case 'sSup':
+        return [mml('msup', arg('e'), arg('sup'))];
+      case 'sSub':
+        return [mml('msub', arg('e'), arg('sub'))];
+      case 'sSubSup':
+        return [mml('msubsup', arg('e'), arg('sub'), arg('sup'))];
+      case 'sPre':
+        return [mml('mmultiscripts', arg('e'), mml('mprescripts'),
+          isEmpty('sub') ? mml('none') : arg('sub'), isEmpty('sup') ? mml('none') : arg('sup'))];
+      case 'rad':
+        return ommlOn(ommlProperty(el, 'radPr', 'degHide')) || isEmpty('deg')
+          ? [mml('msqrt', arg('e'))]
+          : [mml('mroot', arg('e'), arg('deg'))];
+      case 'd': {
+        const open = ommlProperty(el, 'dPr', 'begChr') ?? '(';
+        const close = ommlProperty(el, 'dPr', 'endChr') ?? ')';
+        const separator = ommlProperty(el, 'dPr', 'sepChr') ?? '|';
+        const parts = [...el.children].filter((c) => c.localName === 'e').flatMap((e, i) => {
+          const nodes = ommlToMathml(e);
+          return i ? [mo(separator), ...nodes] : nodes;
+        });
+        // A lone table stays next to its fences, so the importer sees a matrix or cases
+        const inside = parts.length === 1 ? parts[0] : mml('mrow', ...parts);
+        return [mml('mrow', ...(open ? [mo(open)] : []), inside, ...(close ? [mo(close)] : []))];
+      }
+      case 'm': {
+        const table = mml('mtable', ...[...el.children].filter((c) => c.localName === 'mr').map((row) =>
+          mml('mtr', ...[...row.children].filter((c) => c.localName === 'e').map((cell) => mml('mtd', ...ommlToMathml(cell))))));
+        // Column alignment: <m:mc><m:mcPr><m:count m:val="2"/><m:mcJc m:val="right"/>…
+        const groups = [...(child('mPr')?.children ?? [])].find((c) => c.localName === 'mcs')?.children ?? [];
+        const columns = [...groups].flatMap((group) => {
+          const count = Number(ommlProperty(group, 'mcPr', 'count') ?? 1) || 1;
+          return Array(count).fill(ommlProperty(group, 'mcPr', 'mcJc') ?? 'center');
+        });
+        if (columns.some((align) => align !== 'center')) table.setAttribute('columnalign', columns.join(' '));
+        return [table];
+      }
+      case 'eqArr': {
+        // An equation array marks its alignment points with &: a&=b is two cells, a and =b
+        const rows = [...el.children].filter((c) => c.localName === 'e').map((row) => {
+          const cells = [[]];
+          for (const node of ommlToMathml(row)) {
+            if (node.localName === 'mo' && node.textContent === '&') cells.push([]);
+            else cells.at(-1).push(node);
+          }
+          return cells;
+        });
+        const width = Math.max(...rows.map((cells) => cells.length));
+        const table = mml('mtable', ...rows.map((cells) => mml('mtr', ...cells.map((cell) => mml('mtd', ...cell)))));
+        if (width > 1) {
+          table.setAttribute('columnalign', Array.from({ length: width }, (_, i) => (i % 2 ? 'left' : 'right')).join(' '));
+        }
+        return [table];
+      }
+      case 'nary': {
+        const operator = mo(ommlProperty(el, 'naryPr', 'chr') || '\u222B');
+        const sub = !ommlOn(ommlProperty(el, 'naryPr', 'subHide')) && !isEmpty('sub');
+        const sup = !ommlOn(ommlProperty(el, 'naryPr', 'supHide')) && !isEmpty('sup');
+        const stacked = ommlProperty(el, 'naryPr', 'limLoc') === 'undOvr';
+        let op = operator;
+        if (sub && sup) op = mml(stacked ? 'munderover' : 'msubsup', operator, arg('sub'), arg('sup'));
+        else if (sub) op = mml(stacked ? 'munder' : 'msub', operator, arg('sub'));
+        else if (sup) op = mml(stacked ? 'mover' : 'msup', operator, arg('sup'));
+        return [op, ...(child('e') ? ommlToMathml(child('e')) : [])];
+      }
+      case 'func': {
+        const name = child('fName') ? ommlToMathml(child('fName')) : [];
+        // A function name is upright anyway; without the mathvariant the importer reads sin as \sin
+        for (const node of name) {
+          for (const mi of [node, ...node.querySelectorAll('mi')].filter((n) => n.localName === 'mi')) {
+            if ([...mi.textContent].length > 1 && mi.getAttribute('mathvariant') === 'normal') mi.removeAttribute('mathvariant');
+          }
+        }
+        return [mml('mrow', ...name, mo('\u2061'), arg('e'))];
+      }
+      case 'limLow':
+        return [mml('munder', arg('e'), arg('lim'))];
+      case 'limUpp':
+        return [mml('mover', arg('e'), arg('lim'))];
+      case 'acc': {
+        const accent = mml('mover', arg('e'), mo(ommlProperty(el, 'accPr', 'chr') ?? '\u0302'));
+        accent.setAttribute('accent', 'true');
+        return [accent];
+      }
+      case 'bar': {
+        const top = ommlProperty(el, 'barPr', 'pos') === 'top';
+        const bar = mo('\u203E');
+        bar.setAttribute('stretchy', 'true');
+        return [mml(top ? 'mover' : 'munder', arg('e'), bar)];
+      }
+      case 'groupChr': {
+        const top = ommlProperty(el, 'groupChrPr', 'pos') === 'top';
+        const character = ommlProperty(el, 'groupChrPr', 'chr') ?? '\u23DF';
+        return [mml(top ? 'mover' : 'munder', arg('e'), mo(character))];
+      }
+      case 'borderBox': {
+        const box = mml('menclose', arg('e'));
+        box.setAttribute('notation', 'box');
+        return [box];
+      }
+      case 'phant': {
+        if (ommlOn(ommlProperty(el, 'phantPr', 'show') ?? 'on')) return [arg('e')];
+        const phantom = mml('mphantom', arg('e'));
+        if (ommlOn(ommlProperty(el, 'phantPr', 'zeroWid'))) {
+          const padded = mml('mpadded', ...phantom.childNodes);
+          padded.setAttribute('width', '0');
+          phantom.append(padded);
+        }
+        return [phantom];
+      }
+      default:
+        // m:oMath, m:e, m:num, m:box and anything else: the contents in a row
+        return contents();
+    }
+  }
+
+  // Tokens for an OMML run: numbers, letters (one <mi> each in italic; a whole word when upright)
+  // and operators. Normal text (m:nor) is one <mtext>.
+  function ommlRun(run, mml) {
+    const text = [...run.childNodes].map((node) => (
+      node.nodeType === Node.TEXT_NODE ? node.textContent : node.localName === 't' ? node.textContent : ''
+    )).join('');
+    if (!text) return [];
+    const properties = [...run.children].find((c) => c.localName === 'rPr');
+    const property = (name) => {
+      const el = properties && [...properties.children].find((c) => c.localName === name);
+      return el ? (el.getAttributeNS(OMML_NS, 'val') ?? el.getAttribute('m:val') ?? '') : undefined;
+    };
+    if (ommlOn(property('nor'))) return [mml('mtext', text)];
+    const style = property('sty');
+    const variant = ommlVariant(property('scr'), style);
+    const tokens = [];
+    for (const [part] of text.matchAll(/\d+(?:\.\d+)?|\p{L}\p{M}*|\s+|[^\d\p{L}\s]/gu)) {
+      // Spaces like U+2009 (\,) are spacing; a plain space or line break in the HTML isn't
+      if (/^\s+$/.test(part)) {
+        if (/[^ \t\r\n]/.test(part)) tokens.push(mml('mtext', part.replace(/[ \t\r\n]/g, '')));
+        continue;
+      }
+      const last = tokens.at(-1);
+      if (/^\d/.test(part)) {
+        tokens.push(mml('mn', part));
+      } else if (/^\p{L}/u.test(part) && style === 'p' && last?.localName === 'mi') {
+        // An upright word (sin, mol, CO) is one identifier
+        last.textContent += part;
+      } else {
+        tokens.push(mml(/^\p{L}/u.test(part) ? 'mi' : 'mo', part));
+      }
+    }
+    for (const token of tokens) {
+      const letters = token.localName === 'mi';
+      let tokenVariant = token.localName === 'mo' ? null : variant;
+      if (letters && !style && UPRIGHT_BY_DEFAULT.test(token.textContent)) tokenVariant = 'normal';
+      // One letter is italic anyway; several letters need saying so
+      if (letters && style === 'i' && [...token.textContent].length > 1) tokenVariant = 'italic';
+      // Upright digits are the default
+      if (token.localName === 'mn' && tokenVariant === 'normal') tokenVariant = null;
+      if (tokenVariant) token.setAttribute('mathvariant', tokenVariant);
+    }
+    return tokens;
+  }
+
   // --- MathML preprocessing ---
 
   function detectNsPrefix(mathml) {
@@ -1569,8 +2006,11 @@ window.addEventListener('DOMContentLoaded', () => {
     // Child elements, without invisible operators (MathLive puts one inside f''s <msup>)
     const elements = Array.from(node.children).filter((el) => !isInvisible(el));
     const childAt = (i) => (elements[i] ? convertNode(elements[i]) : '');
-    // A script needs something to attach to: {}^{14}C
-    const baseAt = (i) => childAt(i) || '{}';
+    // A script needs something to attach to: {}^{14}C. A phantom with no width (MathML for
+    // Word's stand-in for an empty base) is nothing too.
+    const isWidthlessPhantom = (el) => el?.localName === 'mphantom' && el.children.length === 1 &&
+      el.firstElementChild.localName === 'mpadded' && el.firstElementChild.getAttribute('width') === '0';
+    const baseAt = (i) => (isWidthlessPhantom(elements[i]) ? '' : childAt(i)) || '{}';
 
     switch (tag) {
       case 'math':
@@ -1603,6 +2043,16 @@ window.addEventListener('DOMContentLoaded', () => {
 
       case 'mspace':
         return spaceToLatex(node.getAttribute('width'));
+
+      case 'menclose': {
+        // \boxed and the cancel lines; other notations keep only their contents
+        const notation = (node.getAttribute('notation') ?? 'longdiv').trim().split(/\s+/).sort().join(' ');
+        const command = {
+          box: '\\boxed', roundedbox: '\\boxed', updiagonalstrike: '\\cancel', downdiagonalstrike: '\\bcancel',
+          'downdiagonalstrike updiagonalstrike': '\\xcancel',
+        }[notation];
+        return command ? `${command}{${rowLatex(node)}}` : rowLatex(node);
+      }
 
       case 'mfrac':
         return node.getAttribute('linethickness') === '0'
@@ -1802,7 +2252,8 @@ window.addEventListener('DOMContentLoaded', () => {
     veryverythinmathspace: 1, verythinmathspace: 2, thinmathspace: 3, mediummathspace: 4,
     thickmathspace: 5, verythickmathspace: 6, veryverythickmathspace: 7,
   };
-  const SPACE_UNITS = { em: 1, ex: 0.5, mu: 1 / 18, pt: 0.1, px: 1 / 16 };
+  // em per unit, at 10pt type
+  const SPACE_UNITS = { em: 1, ex: 0.5, mu: 1 / 18, pt: 0.1, px: 1 / 16, bp: 0.1004, pc: 1.2, mm: 0.2845, cm: 2.845, in: 7.227 };
 
   // Space characters' widths in em (MathML for Word writes spaces as text)
   const CHARACTER_SPACES = {
@@ -1816,14 +2267,22 @@ window.addEventListener('DOMContentLoaded', () => {
     const chars = [...text];
     if (chars.every((ch) => ch === ' ' || ch === '\u00A0')) return '\\ '.repeat(chars.length);
     if (!chars.every((ch) => CHARACTER_SPACES[ch])) return null;
-    return nearestSpace(chars.reduce((sum, ch) => sum + CHARACTER_SPACES[ch], 0));
+    const em = chars.reduce((sum, ch) => sum + CHARACTER_SPACES[ch], 0);
+    return farFromNamedSpaces(em) ? `\\hspace{${+em.toFixed(3)}em}` : nearestSpace(em);
+  }
+
+  // A width no named space comes near: \hspace{3em} under a fill-in blank
+  function farFromNamedSpaces(em) {
+    return SPACES.every(([size]) => Math.abs(size - em) > 0.05);
   }
 
   // The LaTeX space closest to an <mspace> width (\, for 0.1667em, \quad for 1em)
   function spaceToLatex(width) {
     if (!width) return '';
     const em = lengthInEm(width);
-    return em === null ? '\\;' : nearestSpace(em);
+    if (em === null) return '\\;';
+    const length = width.trim().match(/^(-?[\d.]+)\s*(em|ex|pt|bp|pc|mm|cm|in)$/);
+    return length && farFromNamedSpaces(em) ? `\\hspace{${length[1]}${length[2]}}` : nearestSpace(em);
   }
 
   function nearestSpace(em) {
@@ -1836,6 +2295,8 @@ window.addEventListener('DOMContentLoaded', () => {
   const ACCENT_ALIASES = {
     '^': '\\hat', '̂': '\\hat', 'ˆ': '\\hat', '̄': '\\bar', '~': '\\tilde', '̃': '\\tilde',
     '̇': '\\dot', '.': '\\dot', '̈': '\\ddot', '→': '\\vec', '˚': '\\mathring',
+    // Word's bar accent is the combining overline
+    '̅': '\\bar', '¯': '\\bar',
   };
   let accentCommands = null;
 

@@ -48,6 +48,9 @@ const MAX_MARGIN = 48;
 // handles those instead), and a rule about several lines made qwen2.5vl:7b wrap every formula in aligned.
 // Without the \mathrm rule, physics notation came back as \text{F}_{\text{net}}=m\text{a} (12 bold-vector
 // and subscript-label formulas: 12 right with it, 6 without; no change on the 30 statistics formulas).
+// Left out after testing on reaction arrows, fill-in blanks and stacked tables: an \xrightarrow[below]{above}
+// rule put labels above the arrow below it; a \underline{\hspace{3em}} rule fixed 4/4 blanks but
+// underlined formulas that had no blank or wrapped them in equation; a rule for empty table cells didn't help.
 const INSTRUCTIONS = 'You transcribe mathematics from images into LaTeX.\n' +
   'Rules:\n' +
   '- Reply with only the LaTeX. No explanation, no Markdown, no $ or $$.\n' +
@@ -271,6 +274,10 @@ async function recognizeWithOllama(model, png) {
     }, OLLAMA_TIMEOUT);
     return { text: data.message?.content ?? '' };
   } catch (err) {
+    // qwen2.5vl loops on some images (a fill-in blank) until Ollama stops it
+    if (/repeat limit/i.test(err.message)) {
+      return { error: 'The model got stuck repeating itself on this image, so Ollama stopped it. Try a closer crop of just the math.' };
+    }
     return { error: err.message };
   }
 }
@@ -527,6 +534,7 @@ async function unavailableReason() {
 function cleanLatex(text) {
   let latex = String(text).replace(/<think>[\s\S]*?<\/think>/g, '').trim();
   latex = latex.replace(/^```[a-z]*\s*/i, '').replace(/\s*```$/, '').trim();
+  latex = joinDisplayBlocks(latex);
   for (const [open, close] of [['$$', '$$'], ['\\[', '\\]'], ['\\(', '\\)'], ['$', '$']]) {
     if (latex.startsWith(open) && latex.endsWith(close) && latex.length > open.length + close.length) {
       latex = latex.slice(open.length, -close.length).trim();
@@ -534,6 +542,24 @@ function cleanLatex(text) {
     }
   }
   return fixIsotopeSymbols(scriptsOutOfMathrm(simplifyBraces(tidyEnvironments(tidyLatex(unwrapTextMath(latex))))));
+}
+
+// The model sometimes answers with several display blocks, \[a\] \[b\] or $$a$$ $$b$$ (a label line
+// under a reaction). Stripping the outer delimiters alone would leave \]\[ in the LaTeX, so the
+// blocks become the rows of one gathered.
+function joinDisplayBlocks(latex) {
+  for (const [open, close] of [['\\[', '\\]'], ['$$', '$$']]) {
+    const blocks = [];
+    let rest = latex;
+    while (rest.startsWith(open)) {
+      const end = rest.indexOf(close, open.length);
+      if (end < 0) break;
+      blocks.push(rest.slice(open.length, end).trim());
+      rest = rest.slice(end + close.length).trim();
+    }
+    if (blocks.length > 1 && !rest) return `\\begin{gathered}${blocks.join('\\\\')}\\end{gathered}`;
+  }
+  return latex;
 }
 
 // Models put chemistry's scripts inside \mathrm: \mathrm{^{14}_{6}C}, \mathrm{H_{2}O}, even
@@ -784,14 +810,40 @@ function tidyEnvironments(latex) {
         after = after.trimStart().slice(close.length);
         name = env;
         columns = null;
-      } else if (!columns.includes('|')) {
-        columns = columns.replace(/\s/g, '').slice(0, used) || 'l';
+      } else {
+        columns = fitColumns(columns, used);
       }
     }
     const opening = `\0begin{${name}}` + (columns === null ? '' : `{${columns}}`);
     latex = before + opening + body + `\0end{${name}}` + after;
   }
   return latex.replace(/\0/g, '\\');
+}
+
+// An array column spec for `used` columns. More cells than columns: MathLive moves the extra cells
+// to a new row, so centered columns are added. Fewer: unused columns are dropped, unless the spec
+// has rules (| or :) whose place would change. l c r p{} m{} b{} are columns; @{} !{} >{} <{} are not.
+function fitColumns(spec, used) {
+  spec = spec.replace(/\s/g, '').replace(/\*\{(\d+)\}\{([^{}]*)\}/g, (m, times, columns) => columns.repeat(Number(times)));
+  const tokens = [];
+  for (let i = 0; i < spec.length; i++) {
+    let end = i;
+    if ('pmb@!<>'.includes(spec[i]) && spec[i + 1] === '{') end = closingBrace(spec, i + 1);
+    if (end < 0) end = spec.length - 1;
+    tokens.push({ text: spec.slice(i, end + 1), column: 'lcrpmb'.includes(spec[i]) });
+    i = end;
+  }
+  const count = tokens.filter((t) => t.column).length;
+  if (count < used) return spec + 'c'.repeat(used - count);
+  if (count === used || /[|:]/.test(spec)) return spec;
+  let kept = 0;
+  let out = '';
+  for (const token of tokens) {
+    if (token.column && kept === used) break;
+    out += token.text;
+    if (token.column) kept++;
+  }
+  return out.replace(/[@!<>]\{[^{}]*\}$/, '') || 'l';
 }
 
 // Leftover grouping that makes the LaTeX harder to read: {{x}}, {\binom{n}{x}} after =,

@@ -4,6 +4,27 @@ All notable changes to MacMath. Versions match the `version` in `package.json`.
 
 **Updating?** Get the latest code, then run `npm install` before `npm start` or `npm run build`. See [Updating MacMath](README.md#updating-macmath).
 
+## 1.7.0 - 2026-10-15
+
+### Added
+
+- Equations copied from Word paste in as math, in the editor or the Import box. Word's plain text for an equation is linear text ("v=ma", without bold, fractions or matrices), so MacMath reads the equation itself from the clipboard's HTML: fractions, scripts, roots, matrices, cases, aligned equation arrays, integrals and sums with limits, functions and limits, accents and bars, braces, boxes, phantoms, bold, script, double-struck and sans-serif letters, and normal text. Several equations become the rows of one `gathered`.
+
+### Fixed
+
+- A charge or exponent written after empty braces is copied on its base: `\mathrm{CO_3{}^{2-}}` and `\mathrm{CO_3}{}^{2-}` give CO₃²⁻, and `x{}^{2}` gives x². Before, the script had an empty base, which Word draws as a placeholder box (a gap in PDFs). Isotopes before a symbol (`{}^{14}\mathrm{C}`, `x_i{}^{14}\mathrm{C}`) are still prescripts.
+- A degree sign on empty braces (`{}^{\circ}\mathrm{C}`) is copied as the degree sign °. Before, it became a ring-operator prescript on the C.
+- MathML for Word: a script that has nothing to attach to (`{}^{-}` on its own) gets an invisible stand-in base, so Word shows no box. Import reads it as an empty base.
+- `\rule{3em}{0.4pt}` fill-in blanks are copied as an underlined space. Before, MathLive dropped them entirely. Raised rules, struts and thick rules are left as they are.
+- `20\degree\mathrm{C}` and a typed `30°` no longer get invisible multiplication signs around the degree sign.
+- An `array` with more cells in a row than columns (as image models sometimes write it) gets the missing columns when it's imported, pasted or read from an image. Before, the extra cells moved to a new row, and copied MathML had `?` cells.
+- Image → math: when the model answers with several display blocks (`\[…\] \[…\]`), they become the rows of one `gathered`. Before, `\]\[` stayed in the LaTeX.
+- Image → math: column specs with `@{}`, `:` or `*{3}{c}` are counted correctly when unused columns are dropped.
+- Image → math: when the model gets stuck repeating itself (it happens on fill-in-blank images), the message says so instead of "prediction aborted, token repeat limit reached".
+- Importing MathML keeps widths that aren't a named LaTeX space: `\hspace{3em}` came back as `\qquad`.
+- MathML for Word: spaces in cm, mm, in, pc and bp have the right width (2cm counted as 2em).
+- Importing MathML keeps `\boxed`, `\cancel`, `\bcancel` and `\xcancel` (`<menclose>` lost them), and reads a combining overline accent as `\bar`.
+
 ## 1.6.0 - 2026-10-14
 
 ### Added

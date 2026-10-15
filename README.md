@@ -11,7 +11,7 @@ A macOS menu bar utility for writing math and copying it as LaTeX or MathML.
 - **Visual math editor** with MathLive -- type or use the virtual keyboard
 - **Resizable editor** -- drag a bottom corner to make the editor wider and taller for large equations, up to the edges of your screen
 - **Copy as LaTeX or MathML** with one click or keyboard shortcut
-- **Import** LaTeX or MathML to edit visually -- auto-detects format and namespace prefixes
+- **Import** LaTeX or MathML to edit visually -- auto-detects format and namespace prefixes. Equations copied from Word paste in as math
 - **Math from images** -- paste a screenshot, choose an image, or drop one on the menu bar icon, and a model on your Mac turns it into editable math: Apple Intelligence (macOS 27) or any vision model you've installed with [Ollama](https://ollama.com)
 - **Chemistry** -- a chemistry keyboard (isotopes, charges, reaction and equilibrium arrows, states, elements) and mhchem's `\ce{}` and `\pu{}`, all exported to MathML that Word displays without empty boxes
 - **MathML for the web or for Word** -- standard MathML for browsers and MathJax, or MathML shaped the way Word's equation import keeps it
@@ -159,6 +159,8 @@ See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 Right-click the menu bar icon for **Launch at Login** and **Quit MacMath**.
 
 To import an existing expression, click **Import** and paste LaTeX or MathML. The format is detected automatically, including namespace-prefixed MathML like `<m:math>`.
+
+An equation copied in Word pastes in as math, in the editor or the **Import** box: MacMath reads the equation Word puts on the clipboard, not its plain text ("v=ma", which loses bold, fractions and the like). Several equations become the rows of one `gathered`; text copied along with them is left out.
 
 ### MathML for the web or for Word
 
