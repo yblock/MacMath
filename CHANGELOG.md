@@ -4,6 +4,14 @@ All notable changes to MacMath. Versions match the `version` in `package.json`.
 
 **Updating?** Get the latest code, then run `npm install` before `npm start` or `npm run build`. See [Updating MacMath](README.md#updating-macmath).
 
+## 1.7.1 - 2026-10-22
+
+Run `npm install` after updating to this version.
+
+### Security
+
+- Updated Electron from 44.7.1 to 44.9.3, which includes security fixes from Chromium (152.0.7977.167), V8, Skia, ANGLE and PDFium, and blocks the compromised eMudhra intermediate certificates ([GHSA-jr5w-w6x2-84p9](https://github.com/electron/electron/security/advisories/GHSA-jr5w-w6x2-84p9)). MacMath makes no secure (TLS) connections of its own, so the certificate issue didn't affect it.
+
 ## 1.7.0 - 2026-10-15
 
 ### Added
