@@ -1,6 +1,6 @@
 # MacMath
 
-A macOS menu bar utility for writing math and copying it as LaTeX or MathML.
+A macOS menu bar utility for writing math and putting it into whatever you are writing, as LaTeX or MathML.
 
 <p align="center">
   <img src="src/image.png" alt="MacMath" width="128" />
@@ -9,9 +9,9 @@ A macOS menu bar utility for writing math and copying it as LaTeX or MathML.
 ## Features
 
 - **Visual math editor** with MathLive -- type or use the virtual keyboard
-- **Resizable editor** -- drag a bottom corner to make the editor wider and taller for large equations, up to the edges of your screen
 - **Insert into the app you came from** -- `Cmd+Enter` pastes the expression straight into the text field you were typing in, as LaTeX or MathML; `Cmd+Shift+Enter` copies it instead
 - **Edit a formula from any app** -- select it, press `Cmd+Shift+M`, and it opens in the editor; Insert then replaces the selection
+- **Resizable editor** -- drag a bottom corner to make the editor wider and taller for large equations, up to the edges of your screen
 - **Import** LaTeX or MathML to edit visually -- auto-detects format and namespace prefixes. Equations copied from Word paste in as math
 - **Math from images** -- paste a screenshot, choose an image, or drop one on the menu bar icon, and a model on your Mac turns it into editable math: Apple Intelligence (macOS 27) or any vision model you've installed with [Ollama](https://ollama.com)
 - **Chemistry** -- a chemistry keyboard (isotopes, charges, reaction and equilibrium arrows, states, elements) and mhchem's `\ce{}` and `\pu{}`, all exported to MathML that Word displays without empty boxes
@@ -24,154 +24,26 @@ A macOS menu bar utility for writing math and copying it as LaTeX or MathML.
 - **Launch at login** -- option in the tray menu
 - **Text mode** -- switch between math symbols and plain text input
 
-<img width="516" height="750" alt="Screenshot 2026-10-01 at 12 32 15 PM" src="https://github.com/user-attachments/assets/627b47bc-3746-4317-8149-8544926a629e" />
+<img width="516" height="750" alt="Screenshot 2026-10-01 at 12 32 15 PM" src="https://github.com/user-attachments/assets/627b47bc-3746-4317-8149-8544926a629e" />
 
-## Choose How To Use It
+## Install
 
-You have two simple options:
+MacMath runs on macOS 13 (Ventura) or later.
 
-1. **Run it directly from Terminal with `npm start`**
-   This is the fastest option if you just want to use the app.
+1. Download the `.dmg` from the latest [release](https://github.com/yblock/MacMath/releases).
+2. Open it and drag **MacMath** into **Applications**.
+3. Open MacMath. The first time, macOS refuses because the app is not notarized: go to **System Settings → Privacy & Security**, scroll down, click **Open Anyway**, and open it again.
+4. MacMath asks for the **Accessibility** permission once. Allow it; Insert and loading a selection need it (see [Permissions](#permissions)).
 
-2. **Build a local `.dmg` on your own Mac**
-   This is the better option if you want to drag MacMath into Applications and launch it like a normal app.
+Its icon appears in the menu bar. Right-click it for **Launch at Login** and **Quit MacMath**.
 
-You do **not** need an Apple Developer account for either of these local options.
-
-## Before You Start
-
-You need:
-
-- A Mac running macOS 13 (Ventura) or later
-- A code-signing identity for your builds, created once with `npm run setup:signing` (see [Signing](#signing))
-- [Node.js](https://nodejs.org/) 22.12 or newer (the LTS download from nodejs.org works)
-- The MacMath source code folder on your machine
-
-If you do not already have the project folder:
-
-1. Go to the GitHub repository page.
-2. Click **Code**.
-3. Click **Download ZIP**.
-4. Open the downloaded ZIP and extract it.
-5. Move the extracted `MacMath` folder somewhere easy to find, like your Downloads folder. If iCloud Drive syncs your Desktop and Documents folders, avoid those, or see [Troubleshooting](#troubleshooting).
-
-## Open The Project In Terminal
-
-1. Open the **Terminal** app on your Mac.
-2. Type `cd ` including the space after `cd`.
-3. Drag the `MacMath` folder into the Terminal window.
-   Terminal will paste the full folder path for you.
-4. Press `Return`.
-
-Example:
-
-```sh
-cd /Users/yourname/Downloads/MacMath
-```
-
-## Install The Required Packages
-
-Run this once before using the app:
-
-```sh
-npm install
-```
-
-This may take a minute or two the first time.
-
-## Option 1: Run It Immediately With `npm start`
-
-Use this if you want the quickest path and do not care about installing MacMath into Applications.
-
-Run:
-
-```sh
-npm start
-```
-
-What happens next:
-
-1. MacMath starts running. The first time, it also downloads Electron (about 100 MB), so give it a minute.
-2. Its icon appears in your menu bar.
-3. Click the menu bar icon to open the editor.
-
-Important notes:
-
-- Leave the Terminal window open while MacMath is running.
-- To quit the app, right-click its menu bar icon and choose **Quit MacMath**, or press `Control + C` in Terminal.
-- When you update MacMath, run `npm install` again before launching. See [Updating MacMath](#updating-macmath).
-
-## Signing
-
-Every build is signed with a self-signed certificate named "MacMath Dev" that lives in your login keychain. Create it once:
-
-```sh
-npm run setup:signing
-```
-
-It asks for your macOS login password so that codesign can use the key without prompting on every build; press Return to skip that and click "Always Allow" the first time macOS asks instead.
-
-Why: macOS ties the Accessibility permission, which Insert and loading a selection need, to the app's code signature. An ad-hoc signature changes with every build, so each rebuild would lose the permission. One stable certificate keeps it. This is for development only; distributing MacMath to other people would still need a Developer ID certificate and notarization.
-
-`build` and `build:dir` refuse to run until the identity exists. If MacMath already had the permission from an older ad-hoc build, remove it and add it again in System Settings → Privacy & Security → Accessibility once after the first signed build.
-
-## Option 2: Build A Local DMG And Install It
-
-Use this if you want MacMath to behave more like a normal installed app.
-
-Run:
-
-```sh
-npm run build
-```
-
-What this does:
-
-- Builds the app locally on your Mac
-- Creates a `dist` folder inside the project
-- Puts a `.dmg` file there
-
-When the build finishes:
-
-1. Open the `MacMath` project folder in Finder.
-2. Open the `dist` folder.
-3. Double-click the generated `.dmg` file.
-4. Drag **MacMath** into **Applications**.
-5. Open **Applications** and launch MacMath.
-
-## Which Option Should You Pick?
-
-- Choose `npm start` if you want the fastest setup and are okay running it from Terminal.
-- Choose `npm run build` if you want a local `.dmg` and an app you can keep in Applications.
-
-## Updating MacMath
-
-To get the latest version:
-
-1. Get the newest code.
-   - If you downloaded a ZIP: download a fresh ZIP from GitHub and replace your old `MacMath` folder with the new one.
-   - If you cloned with git: run `git pull` in the project folder.
-2. Open the project folder in Terminal (see [Open The Project In Terminal](#open-the-project-in-terminal)).
-3. Install the updated packages:
-
-   ```sh
-   npm install
-   ```
-
-   **Do not skip this step.** Updates can change the packages MacMath depends on, and the editor won't load until they're installed. If `npm install` warns that your Node.js version is too old, install the current LTS from [nodejs.org](https://nodejs.org/) and run it again.
-4. Start MacMath again:
-   - With `npm start`: quit the running copy first (right-click the menu bar icon, then **Quit MacMath**), then run `npm start`.
-   - With the `.dmg`: run `npm run build` again, then drag the new **MacMath** into **Applications** and replace the old one.
-
-See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
+To update, install the new `.dmg` the same way and replace the old copy; the permission stays. See [CHANGELOG.md](CHANGELOG.md) for what changed in each version. To run or build MacMath from source, see [DEVELOPING.md](DEVELOPING.md).
 
 ## Usage
 
 1. While typing in any app, press `Cmd+Shift+M` (or click the menu bar icon) to open the editor
 2. Type a math expression -- it renders live
 3. Press `Cmd+Enter` to insert it into the text field you came from, or `Cmd+Shift+Enter` to copy it
-
-Right-click the menu bar icon for **Launch at Login** and **Quit MacMath**.
 
 ### Insert, Copy and the output format
 
@@ -187,7 +59,9 @@ MacMath reads the selection through the macOS Accessibility API and, in apps tha
 
 ### Permissions
 
-Insert and loading a selection both need the **Accessibility** permission, which MacMath asks for once at first launch. If you declined, allow MacMath under System Settings → Privacy & Security → Accessibility. macOS ties the permission to the app's signature: builds made with `npm run build` keep it, but if MacMath was ever granted it as an ad-hoc build, remove it from the list and add it again once.
+Insert and loading a selection both need the **Accessibility** permission, which MacMath asks for once at first launch. If you declined, allow MacMath under **System Settings → Privacy & Security → Accessibility**. Nothing you type is stored or sent anywhere; the permission is used only to paste and to read the selected text.
+
+### Import
 
 To import an existing expression, click **Import** and paste LaTeX or MathML. The format is detected automatically, including namespace-prefixed MathML like `<m:math>`.
 
@@ -195,7 +69,7 @@ An equation copied in Word pastes in as math, in the editor or the **Import** bo
 
 ### MathML for the web or for Word
 
-Under the copy buttons, **MathML for** picks where the MathML is going. MacMath remembers the choice.
+Under the buttons, **MathML for** picks where the MathML is going. MacMath remembers the choice.
 
 - **Web** (the default) writes standard MathML for browsers, MathJax and XML files. Spaces such as `\,` and `\quad` are `<mspace>` elements.
 - **Word** writes MathML that Word's equation import keeps. Word drops `<mspace>`, so spaces become space characters (a thin space for `\,`, an em space for `\quad`; a negative space like `\!` is left out). Function names such as sin, log and lim come out upright with their space after them, `\overline` and `\underline` become bars, braces stretch over their contents, and `\mathsf` and `\mathtt` keep their fonts. Isotopes get an invisible filler instead of an empty slot, which Word shows as a box.
@@ -206,7 +80,7 @@ Importing reads either kind back.
 
 Open the virtual keyboard and choose **H₂O** for chemistry keys: isotopes (mass and atomic number on the left), upright element symbols, atom counts, charges, the hydrate dot, reaction, equilibrium and resonance arrows (also with conditions above and below), gas and precipitate arrows, states like (aq), and common constants. Hold a key for related ones, such as other elements or K<sub>sp</sub>. Press `Tab` to move to the next box in a key's template.
 
-MacMath also understands [mhchem](https://mhchem.github.io/MathJax-mhchem/): `\ce{2H2 + O2 -> 2H2O}` or `\pu{123 kJ/mol}`. Paste it into the editor or load it with **Import**. Typing `\ce{…}` straight into the editor works only without spaces (`\ce{H2O}`), because a space ends a typed command. Copy LaTeX keeps `\ce{}`; Copy MathML writes the formula out in full.
+MacMath also understands [mhchem](https://mhchem.github.io/MathJax-mhchem/): `\ce{2H2 + O2 -> 2H2O}` or `\pu{123 kJ/mol}`. Paste it into the editor or load it with **Import**. Typing `\ce{…}` straight into the editor works only without spaces (`\ce{H2O}`), because a space ends a typed command. LaTeX output keeps `\ce{}`; MathML output writes the formula out in full.
 
 Isotopes like ³He are copied as MathML prescripts (`<mmultiscripts>`). For Word, the missing prescript is an invisible copy of the other, because Word draws an empty slot as a box.
 
@@ -218,13 +92,15 @@ MacMath can turn an image of math into an expression you can edit. The image is 
 - Click **Import**, then **Image…**, and choose a file
 - Drag an image file onto the MacMath icon in the menu bar
 
-A spinner covers the editor while the image is read, which takes a few seconds (longer the first time, while the model loads). The result replaces what's in the editor. Before the model sees the image, MacMath crops it to the math, enlarges small formulas and fills a transparent background with white. Any image format macOS opens works, including HEIC, TIFF and WebP. MacMath tidies the LaTeX the model writes, for example `pmatrix` instead of `\left(\begin{array}…\right)`. Models write every word as upright text, so MacMath measures the slant of each word in the image and keeps italic words italic (`\mathit{unc}` in *% unc r*); this uses macOS's text recognition and a small helper that `npm install` builds with Xcode or the Command Line Tools. Check the result before copying: models can misread symbols, especially in handwriting.
+A spinner covers the editor while the image is read, which takes a few seconds (longer the first time, while the model loads). The result replaces what's in the editor. Before the model sees the image, MacMath crops it to the math, enlarges small formulas and fills a transparent background with white. Any image format macOS opens works, including HEIC, TIFF and WebP. MacMath tidies the LaTeX the model writes, for example `pmatrix` instead of `\left(\begin{array}…\right)`. Models write every word as upright text, so MacMath measures the slant of each word in the image and keeps italic words italic (`\mathit{unc}` in *% unc r*). Check the result before inserting: models can misread symbols, especially in handwriting.
 
 Choose the model under **Import** → **Read images with**:
 
-- **Apple Intelligence** needs macOS 27 or later with Apple Intelligence turned on. It also needs a small helper program that `npm install` builds with Xcode or the Command Line Tools, and building it needs the macOS 27 SDK. If they were missing or older at install time, update them, then run `npm run build:ocr`.
+- **Apple Intelligence** needs macOS 27 or later on an Apple silicon Mac with Apple Intelligence turned on.
 - **Ollama** works on any Mac that runs [Ollama](https://ollama.com), a free app for local AI models. If nothing on your Mac can read images yet, **Import** offers the next step: **Get Ollama…** opens its download page, **Start Ollama** opens the app, and **Download** fetches the recommended model: `qwen2.5vl:7b` (6 GB) when your Mac has the memory for it, otherwise `qwen2.5vl:3b` (3.2 GB). The 7B model is more accurate, especially with words and matrices, and takes about 10 seconds an image. Any other Ollama model that reads images also appears in the list. Models too large for your Mac's memory are listed but can't be chosen, because loading one can freeze the Mac. MacMath has Ollama unload the model 30 seconds after the last image, and when MacMath quits, so it doesn't hold on to memory.
 - **Automatic** (the default) uses Apple Intelligence when it's available, otherwise the recommended Ollama model, otherwise another installed Ollama model that reads images.
+
+### Resizing
 
 Need more room? Drag either bottom corner of the editor to resize it in both directions, or the handle at the bottom center to change only its height. MacMath never grows past the edges of your screen; if the virtual keyboard needs the space, the editor shrinks to fit. Double-click a handle to go back to the default size. Each time you reopen MacMath it starts at the default size again, with your expression still there.
 
@@ -241,56 +117,19 @@ Need more room? Drag either bottom corner of the editor to resize it in both dir
 | `Cmd+Z` | Undo |
 | `Cmd+Shift+Z` | Redo |
 
-## Commands
-
-```sh
-npm install
-npm run setup:signing
-npm start
-npm run build
-npm run build:dir
-npm run build:ocr
-npm test
-```
-
-- `npm install` installs the required packages
-- `npm start` runs the app directly
-- `npm run setup:signing` creates the signing identity, once per Mac (see [Signing](#signing))
-- `npm run build` creates the signed `.app` bundle and a local `.dmg`
-- `npm run build:dir` creates the signed `.app` bundle without the `.dmg`
-- `npm run build:ocr` builds the native helpers: reading math from images and the `sendpaste` helper behind Insert (`npm install` and the build commands run it too)
-- `npm test` runs the unit tests (`npm run test:unit`, plain Node) and the Playwright tests that drive the Electron app (`npm run test:e2e`)
-
 ## Troubleshooting
+
+### macOS says MacMath cannot be opened
+
+The app is not notarized. Go to **System Settings → Privacy & Security**, scroll down to the message about MacMath, click **Open Anyway**, and open it again. This is needed once per install.
 
 ### Insert only copies, or `Cmd+Shift+M` ignores the selected text
 
-Both need the Accessibility permission; see [Permissions](#permissions). If MacMath is listed there and switched on but it still does not work, the permission belongs to an older build: remove MacMath from the list, add it again, then quit and reopen it.
+Both need the Accessibility permission; see [Permissions](#permissions). If MacMath is listed there and switched on but it still does not work, remove MacMath from the list, add it again, then quit and reopen it.
 
 ### Reading an image says Ollama isn't running, or takes very long
 
 Open the Ollama app; MacMath needs it running in the background. The first image after a while takes longer because Ollama loads the model into memory. If your Mac slows down badly, choose a smaller model under **Import** → **Read images with**, or quit apps you aren't using.
-
-### `npm start` or `npm run build` fails with "Cannot find module"
-
-This usually happens when the `MacMath` folder is inside Desktop or Documents and iCloud Drive syncs those folders (the **Desktop & Documents Folders** option in iCloud Drive settings). While syncing the thousands of files in `node_modules`, iCloud can rename some of them, for example to `rebuild 3`, and the build can no longer find them. You'll see an error like `Cannot find module '@electron/rebuild'`.
-
-To fix it, keep iCloud out of the folders npm and the build create, then reinstall. Run this in the project folder:
-
-```sh
-rm -rf node_modules
-mkdir -p node_modules dist
-xattr -w 'com.apple.fileprovider.ignore#P' 1 node_modules dist
-npm install
-```
-
-iCloud then leaves `node_modules` and `dist` on your Mac only. The setting stays as long as you keep using `npm install`; if you ever delete `node_modules`, run these steps again.
-
-You can also stop iCloud from syncing the whole project instead. Either move the folder out of Desktop and Documents, or rename it so it ends in `.nosync` (for example `MacMath.nosync`).
-
-## Releasing
-
-GitHub Actions makes a release when a merge to `main` changes the `version` in `package.json`: the Release workflow builds and signs the app, tags the commit `v<version>` and attaches the `.dmg` to a GitHub release. Merges that leave the version alone only run the tests. "Run workflow" on the Release workflow builds any branch and keeps the `.dmg` as a workflow artifact. Releases are not notarized: the first launch is refused until the app is allowed under System Settings → Privacy & Security. How releases are signed is described at the top of `.github/workflows/release.yml`.
 
 ## License
 

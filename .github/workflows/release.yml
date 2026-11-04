@@ -5,14 +5,12 @@ name: Release
 # release of that tag. Merges that leave the version alone build nothing here.
 # "Run workflow" builds any branch and keeps the .dmg as a workflow artifact only.
 #
-# Signing: with the repository secrets MACMATH_SIGNING_P12 (a base64-encoded .p12 export
-# of the "MacMath Dev" certificate, see README → Releasing) and MACMATH_SIGNING_PASSWORD,
-# every release is signed with the same identity and users keep the Accessibility
-# permission across updates. Without them the build is signed with a throwaway
-# certificate made for the run; it installs and runs the same, but each update is a new
-# app to macOS and the permission has to be granted again.
+# Signing: every release is signed with the same "MacMath Dev" identity, so users keep the
+# Accessibility permission across updates. It comes from the repository secrets
+# MACMATH_SIGNING_P12 (a base64-encoded .p12 export of the certificate, see
+# DEVELOPING.md → Releasing) and MACMATH_SIGNING_PASSWORD; the build fails without them.
 #
-# Neither is notarization: downloads still need "Open Anyway" in System Settings once.
+# This is not notarization: downloads still need "Open Anyway" in System Settings once.
 
 on:
   push:
@@ -63,12 +61,15 @@ jobs:
       - run: npm ci
 
       - name: Signing identity
-        id: identity
         env:
           P12_BASE64: ${{ secrets.MACMATH_SIGNING_P12 }}
           P12_PASSWORD: ${{ secrets.MACMATH_SIGNING_PASSWORD }}
         run: |
           set -euo pipefail
+          if [[ -z "$P12_BASE64" || -z "$P12_PASSWORD" ]]; then
+            echo "::error::Releases must be signed with the stable MacMath Dev identity. Add the repository secrets MACMATH_SIGNING_P12 and MACMATH_SIGNING_PASSWORD (see DEVELOPING.md → Releasing)."
+            exit 1
+          fi
           KEYCHAIN_PASSWORD="$(/usr/bin/openssl rand -hex 16)"
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security set-keychain-settings -lut 3600 "$KEYCHAIN"
@@ -77,26 +78,10 @@ jobs:
           # (security appends "-db" to names it is given, so strip it from the ones it prints)
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"' | sed 's/-db$//')
 
-          if [[ -n "$P12_BASE64" ]]; then
-            base64 --decode <<<"$P12_BASE64" > "$RUNNER_TEMP/identity.p12"
-            STABLE=true
-          else
-            echo "::warning::No MACMATH_SIGNING_P12 secret: signing with a throwaway certificate, so this build will not keep the Accessibility permission across updates."
-            P12_PASSWORD="$(/usr/bin/openssl rand -hex 16)"
-            /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
-              -keyout "$RUNNER_TEMP/key.pem" -out "$RUNNER_TEMP/cert.pem" -subj "/CN=MacMath Dev" \
-              -addext "basicConstraints=critical,CA:false" \
-              -addext "keyUsage=critical,digitalSignature" \
-              -addext "extendedKeyUsage=critical,codeSigning" 2>/dev/null
-            /usr/bin/openssl pkcs12 -export -inkey "$RUNNER_TEMP/key.pem" -in "$RUNNER_TEMP/cert.pem" \
-              -out "$RUNNER_TEMP/identity.p12" -name "MacMath Dev" -passout "pass:$P12_PASSWORD" 2>/dev/null
-            STABLE=false
-          fi
-          echo "stable=$STABLE" >> "$GITHUB_OUTPUT"
-
+          base64 --decode <<<"$P12_BASE64" > "$RUNNER_TEMP/identity.p12"
           security import "$RUNNER_TEMP/identity.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign >/dev/null
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
-          rm -f "$RUNNER_TEMP/identity.p12" "$RUNNER_TEMP/key.pem"
+          rm -f "$RUNNER_TEMP/identity.p12"
 
       - name: Build and sign
         run: npm run build
@@ -117,12 +102,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
-          STABLE: ${{ steps.identity.outputs.stable }}
         run: |
           set -euo pipefail
           NOTE="Apple silicon Macs, macOS 13 or later. The app is not notarized: after the first launch is refused, allow it under System Settings → Privacy & Security, then open it again."
-          if [[ "$STABLE" != "true" ]]; then
-            NOTE="$NOTE Signed with a one-off certificate, so the Accessibility permission must be granted again after updating."
-          fi
           # gh creates the tag at this commit when it does not exist yet
           gh release create "$TAG" dist/*.dmg --target "$GITHUB_SHA" --title "MacMath $TAG" --notes "$NOTE"
