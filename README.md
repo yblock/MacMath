@@ -42,7 +42,7 @@ MacMath runs on macOS 13 (Ventura) or later.
 
 Its icon appears in the menu bar. Right-click it for **Launch at Login** and **Quit MacMath**.
 
-To update, install the new `.dmg` the same way and replace the old copy; the permission stays. See [CHANGELOG.md](CHANGELOG.md) for what changed in each version. To run or build MacMath from source, see [DEVELOPING.md](DEVELOPING.md).
+To update, install the new `.dmg` the same way and replace the old copy; the permission stays. See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 
 ## Usage
 
@@ -139,3 +139,7 @@ Open the Ollama app; MacMath needs it running in the background. The first image
 ## License
 
 MIT
+
+## For contributors
+
+Bug reports and ideas go to the [issue tracker](https://github.com/yblock/MacMath/issues). To run MacMath from source, build it, run the tests or make a release, see [DEVELOPING.md](DEVELOPING.md); it also explains why builds are signed and how the Insert and selection features reach other apps.
