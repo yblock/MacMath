@@ -12,11 +12,12 @@
     "postinstall": "node native/build.js",
     "start": "electron .",
     "build:ocr": "node native/build.js",
-    "build": "node native/build.js && electron-builder --mac",
-    "build:dir": "node native/build.js && electron-builder --mac --dir",
+    "build": "scripts/build-mac.sh --dmg",
+    "build:dir": "scripts/build-mac.sh",
     "test": "npm run test:unit && npm run test:e2e",
     "test:unit": "node --test \"test/unit/**/*.test.js\"",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "setup:signing": "scripts/setup-mac-signing.sh"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

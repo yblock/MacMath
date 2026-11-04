@@ -42,6 +42,7 @@ You do **not** need an Apple Developer account for either of these local options
 You need:
 
 - A Mac running macOS 13 (Ventura) or later
+- A code-signing identity for your builds, created once with `npm run setup:signing` (see [Signing](#signing))
 - [Node.js](https://nodejs.org/) 22.12 or newer (the LTS download from nodejs.org works)
 - The MacMath source code folder on your machine
 
@@ -98,6 +99,20 @@ Important notes:
 - Leave the Terminal window open while MacMath is running.
 - To quit the app, right-click its menu bar icon and choose **Quit MacMath**, or press `Control + C` in Terminal.
 - When you update MacMath, run `npm install` again before launching. See [Updating MacMath](#updating-macmath).
+
+## Signing
+
+Every build is signed with a self-signed certificate named "MacMath Dev" that lives in your login keychain. Create it once:
+
+```sh
+npm run setup:signing
+```
+
+It asks for your macOS login password so that codesign can use the key without prompting on every build; press Return to skip that and click "Always Allow" the first time macOS asks instead.
+
+Why: macOS ties the Accessibility permission, which Insert and loading a selection need, to the app's code signature. An ad-hoc signature changes with every build, so each rebuild would lose the permission. One stable certificate keeps it. This is for development only; distributing MacMath to other people would still need a Developer ID certificate and notarization.
+
+`build` and `build:dir` refuse to run until the identity exists. If MacMath already had the permission from an older ad-hoc build, remove it and add it again in System Settings → Privacy & Security → Accessibility once after the first signed build.
 
 ## Option 2: Build A Local DMG And Install It
 
@@ -214,6 +229,7 @@ Need more room? Drag either bottom corner of the editor to resize it in both dir
 
 ```sh
 npm install
+npm run setup:signing
 npm start
 npm run build
 npm run build:dir
@@ -222,8 +238,9 @@ npm run build:ocr
 
 - `npm install` installs the required packages
 - `npm start` runs the app directly
-- `npm run build` creates a local `.dmg`
-- `npm run build:dir` creates the `.app` bundle without building the `.dmg`
+- `npm run setup:signing` creates the signing identity, once per Mac (see [Signing](#signing))
+- `npm run build` creates the signed `.app` bundle and a local `.dmg`
+- `npm run build:dir` creates the signed `.app` bundle without the `.dmg`
 - `npm run build:ocr` builds the helpers for reading math from images (`npm install` and the build commands run it too)
 
 ## Troubleshooting
