@@ -8,6 +8,7 @@
 //   global.macmathTest      — present when MACMATH_USER_DATA is set, in the main process:
 //       openFromShortcut()  the ⌘⇧M handler: reads the selection, then toggles the popover
 //       openFromTray()      the menu-bar-click handler: toggles the popover, no selection read
+//       popoverVisible()    whether the popover is up (no window is shown under test)
 
 const { test, expect } = require('@playwright/test');
 const { launchApp, setFormula, editorLatex } = require('./helpers');
@@ -20,10 +21,9 @@ test('the shortcut loads the selection into the editor; the tray icon does not',
     // Something is already in the editor, as it usually is
     await setFormula(page, 'x^2');
 
-    const visible = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isVisible());
+    const visible = () => app.evaluate(() => global.macmathTest.popoverVisible());
 
-    // Start hidden, as when the user is typing in another app
-    await app.evaluate(() => global.macmathTest.openFromTray());
+    // The popover starts hidden, as when the user is typing in another app
     await expect.poll(visible).toBe(false);
 
     // The shortcut path: reads the selection, opens, and the selection replaces x^2

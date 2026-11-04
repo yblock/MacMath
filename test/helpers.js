@@ -22,13 +22,10 @@ async function launchApp(options = {}) {
     env: { ...process.env, MACMATH_USER_DATA: userData, MACMATH_PASTE_LOG: pasteLog, ...(options.env || {}) }
   });
 
-  // The popover starts hidden; show it so the renderer has keyboard focus.
+  // Headless: no window is ever shown under test. Playwright drives the renderer over the
+  // DevTools protocol, which needs no visible window, and the app tracks the popover's
+  // state itself (see main.js).
   const page = await app.firstWindow();
-  await app.evaluate(({ BrowserWindow }) => {
-    const [win] = BrowserWindow.getAllWindows();
-    win.show();
-    win.focus();
-  });
   await page.waitForFunction(() => {
     const mf = document.getElementById('mathfield');
     return Boolean(mf && customElements.get('math-field') && typeof mf.setValue === 'function');

@@ -32,6 +32,10 @@ const DEFAULT_HEIGHT = 380;
 
 let mainWindow = null;
 let tray = null;
+// Whether the popover is up. Under test (MACMATH_USER_DATA) no window is ever shown or
+// hidden, so the tests run headless; this flag is what they read.
+let popoverVisible = false;
+const headless = Boolean(process.env.MACMATH_USER_DATA);
 let resetWorkspaceVisibilityTimer = null;
 // While a file dialog is open the popover loses focus, but it shouldn't hide
 let dialogOpen = false;
@@ -52,7 +56,12 @@ function resetWorkspaceVisibility() {
 }
 
 function hideWindow() {
-  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) {
+  if (!mainWindow || mainWindow.isDestroyed() || !popoverVisible) {
+    return;
+  }
+  popoverVisible = false;
+  if (headless) {
+    mainWindow.webContents.send('popover-hidden');
     return;
   }
 
@@ -140,7 +149,7 @@ function createTray() {
   // (Dragging onto the popover itself doesn't work: it hides once another app has focus.)
   tray.on('drop-files', (event, files) => {
     const image = files.find(isImageFile);
-    if (!mainWindow.isVisible()) showWindow();
+    if (!popoverVisible) showWindow();
     const result = image
       ? startRecognition(image)
       : Promise.resolve({ error: 'Drop an image file (PNG, JPEG, HEIC, TIFF…).' });
@@ -149,7 +158,7 @@ function createTray() {
 }
 
 function toggleWindow() {
-  if (mainWindow.isVisible()) {
+  if (popoverVisible) {
     hideWindow();
   } else {
     showWindow();
@@ -166,7 +175,7 @@ function openFromTray() {
 // (the previous expression stays in History). When the popover is already showing, the
 // front app is MacMath itself, so there is nothing to read: just hide.
 function openFromShortcut() {
-  const decision = decideShortcut({ popoverVisible: mainWindow.isVisible(), getSelectedText: loadSelectedTextLibrary() });
+  const decision = decideShortcut({ popoverVisible, getSelectedText: loadSelectedTextLibrary() });
   if (decision.action === 'hide') {
     hideWindow();
     return;
@@ -201,6 +210,11 @@ function promptForAccessibilityOnce() {
 }
 
 function showWindow() {
+  popoverVisible = true;
+  if (headless) {
+    mainWindow.webContents.send('popover-shown', getWindowLimits());
+    return;
+  }
   const trayBounds = tray.getBounds();
   const windowBounds = mainWindow.getBounds();
 
@@ -218,6 +232,10 @@ function showWindow() {
 
   mainWindow.setPosition(x, y, false);
   mainWindow.webContents.send('popover-shown', getWindowLimits());
+  // hideWindow() hides the whole app so focus returns to the previous one. Showing the
+  // window alone then races with activation: it can come up unfocused, get a blur at
+  // once and hide again. Activating the app first (unhiding it too) makes it stick.
+  if (isMac) app.focus({ steal: true });
   mainWindow.show();
   mainWindow.moveTop();
   mainWindow.focus();
@@ -352,7 +370,7 @@ app.whenReady().then(() => {
 
   // Tests (test/*.spec.js) cannot press the global shortcut or click the tray icon
   if (process.env.MACMATH_USER_DATA) {
-    global.macmathTest = { openFromShortcut, openFromTray };
+    global.macmathTest = { openFromShortcut, openFromTray, popoverVisible: () => popoverVisible };
   }
   if (!registered) {
     console.warn('MacMath: Failed to register global shortcut Cmd+Shift+M — it may be in use by another app');
