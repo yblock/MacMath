@@ -5,8 +5,16 @@ const {
   IMAGE_EXTENSIONS, isImageFile, listEngines, setEngine, unavailableReason, recognizeImage, isRecognizing, clipboardImage,
   startOllama, downloadRecommendedModel, unloadOllamaModel
 } = require('./recognize');
+const { insertIntoPreviousApp } = require('./paste');
+const { getOutputFormat, setOutputFormat } = require('./settings');
 
 const isMac = process.platform === 'darwin';
+
+// Tests (see test/) launch the app with their own profile so they never read or
+// write the real settings, history or image-engine choice. Must run before ready.
+if (process.env.MACMATH_USER_DATA) {
+  app.setPath('userData', process.env.MACMATH_USER_DATA);
+}
 const workspaceVisibilityOptions = {
   visibleOnFullScreen: true,
   skipTransformProcessType: true
@@ -43,11 +51,14 @@ function resetWorkspaceVisibility() {
 }
 
 function hideWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) {
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) {
     return;
   }
 
   mainWindow.hide();
+  // Hiding the window alone leaves MacMath the active app, with nothing on screen to
+  // type into. Hiding the app hands focus back to the app the user came from.
+  if (isMac) app.hide();
   resetWorkspaceVisibility();
   // Reopen at the default size, so it is positioned under the tray icon correctly.
   // Set it here: a hidden renderer doesn't get animation frames to request it.
@@ -198,6 +209,10 @@ function buildTrayMenu() {
 }
 
 ipcMain.handle('copy-text', (event, text) => clipboard.writeText(String(text)));
+// Insert: paste into the app the user came from (see paste.js)
+ipcMain.handle('insert-text', (event, text) => insertIntoPreviousApp(String(text), hideWindow));
+ipcMain.handle('get-output-format', () => getOutputFormat());
+ipcMain.handle('set-output-format', (event, format) => setOutputFormat(String(format)));
 
 // --- Reading math from images (recognize.js) ---
 

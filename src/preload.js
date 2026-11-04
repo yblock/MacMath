@@ -5,6 +5,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   copyText(text) {
     return ipcRenderer.invoke('copy-text', text);
   },
+  // Pastes into the app the popover was opened from. Resolves with { ok } or
+  // { ok: false, reason, needsAccessibility }
+  insertText(text) {
+    return ipcRenderer.invoke('insert-text', text);
+  },
+  // 'latex' or 'mathml': what Insert and Copy produce, kept between launches
+  getOutputFormat() {
+    return ipcRenderer.invoke('get-output-format');
+  },
+  setOutputFormat(format) {
+    return ipcRenderer.invoke('set-output-format', format);
+  },
   resizeWindow(width, height, anchor) {
     ipcRenderer.send('resize-window', width, height, anchor);
   },

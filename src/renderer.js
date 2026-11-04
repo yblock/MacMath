@@ -44,8 +44,9 @@ window.addEventListener('DOMContentLoaded', () => {
   const mathField = document.getElementById('mathfield');
   const editorContainer = document.getElementById('editorContainer');
   const latexPreview = document.getElementById('latexPreview');
-  const copyLaTeXBtn = document.getElementById('copyLaTeXBtn');
-  const copyMathMLBtn = document.getElementById('copyMathMLBtn');
+  const insertBtn = document.getElementById('insertBtn');
+  const copyBtn = document.getElementById('copyBtn');
+  const formatButtons = document.querySelectorAll('.format-toggle button');
   const importToggle = document.getElementById('importToggle');
   const importSection = document.getElementById('importSection');
   const importInput = document.getElementById('importInput');
@@ -356,7 +357,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   const copyBtnTimers = new Map();
 
-  function flashCopied(btn) {
+  function flashCopied(btn, label = 'Copied!') {
     // Clear any existing timer to prevent race conditions
     if (copyBtnTimers.has(btn)) clearTimeout(copyBtnTimers.get(btn));
 
@@ -366,7 +367,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     btn.classList.add('copied');
-    btn.innerHTML = 'Copied!';
+    btn.textContent = label;
 
     const timer = setTimeout(() => {
       btn.classList.remove('copied');
@@ -596,9 +597,9 @@ window.addEventListener('DOMContentLoaded', () => {
     if (e.metaKey && e.key === 'Enter') {
       e.preventDefault();
       if (e.shiftKey) {
-        copyMathMLBtn.click();
+        copyBtn.click();
       } else {
-        copyLaTeXBtn.click();
+        insertBtn.click();
       }
     }
   });
@@ -649,23 +650,66 @@ window.addEventListener('DOMContentLoaded', () => {
     renderHistory();
   });
 
-  copyLaTeXBtn.addEventListener('click', () => {
+  // --- Output format: LaTeX or MathML, for both Insert and Copy ---
+
+  let outputFormat = 'latex';
+
+  function showFormat() {
+    for (const button of formatButtons) button.setAttribute('aria-pressed', String(button.dataset.format === outputFormat));
+  }
+
+  window.electronAPI?.getOutputFormat?.().then((format) => {
+    if (format === 'latex' || format === 'mathml') outputFormat = format;
+    showFormat();
+  }).catch(() => {});
+
+  for (const button of formatButtons) {
+    // Keep focus (and the selection) in the editor
+    button.addEventListener('mousedown', (e) => e.preventDefault());
+    button.addEventListener('click', () => {
+      outputFormat = button.dataset.format;
+      showFormat();
+      window.electronAPI?.setOutputFormat?.(outputFormat).catch(() => {});
+    });
+  }
+
+  // The expression in the chosen format, or null when the editor is empty
+  function currentOutput() {
     const latex = mathField.getValue('latex');
-    if (latex) {
-      addToHistory(latex);
-      copyToClipboard(latex).then(() => flashCopied(copyLaTeXBtn));
+    if (!latex) return null;
+    if (outputFormat === 'mathml') {
+      const inner = getMathML();
+      return inner ? { latex, text: applyNamespacePrefix(inner, nsPrefix.value.trim()) } : null;
+    }
+    return { latex, text: latex };
+  }
+
+  // --- Insert and Copy ---
+
+  insertBtn.addEventListener('click', async () => {
+    const output = currentOutput();
+    if (!output) return;
+    addToHistory(output.latex);
+    if (!window.electronAPI?.insertText) {
+      await copyToClipboard(output.text);
+      flashCopied(insertBtn);
+      return;
+    }
+    const result = await window.electronAPI.insertText(output.text);
+    if (result?.ok) {
+      flashCopied(insertBtn, 'Inserted');
+    } else {
+      // The text is on the clipboard regardless, so pasting by hand still works
+      flashCopied(insertBtn, result?.needsAccessibility ? 'Copied — allow Accessibility to paste' : 'Copied — paste with ⌘V');
+      if (result?.reason) console.warn('MacMath: insert failed:', result.reason);
     }
   });
 
-  copyMathMLBtn.addEventListener('click', () => {
-    const inner = getMathML();
-    if (inner) {
-      const latex = mathField.getValue('latex');
-      addToHistory(latex);
-      const prefix = nsPrefix.value.trim();
-      const mathml = applyNamespacePrefix(inner, prefix);
-      copyToClipboard(mathml).then(() => flashCopied(copyMathMLBtn));
-    }
+  copyBtn.addEventListener('click', () => {
+    const output = currentOutput();
+    if (!output) return;
+    addToHistory(output.latex);
+    copyToClipboard(output.text).then(() => flashCopied(copyBtn));
   });
 
   // --- MathML export ---

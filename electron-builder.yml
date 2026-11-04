@@ -27,6 +27,8 @@ dmg:
 files:
   - main.js
   - recognize.js
+  - paste.js
+  - settings.js
   - package.json
   - "src/**/*"
   - "!src/image.png"

@@ -13,9 +13,11 @@
     "start": "electron .",
     "build:ocr": "node native/build.js",
     "build": "node native/build.js && electron-builder --mac",
-    "build:dir": "node native/build.js && electron-builder --mac --dir"
+    "build:dir": "node native/build.js && electron-builder --mac --dir",
+    "test": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "electron": "^44.9.3",
     "electron-builder": "^26.15.3"
   },
