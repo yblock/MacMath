@@ -640,14 +640,16 @@
       margin-left: 8px;
     }
 
-    .target-toggle {
+    .target-toggle,
+    .format-toggle {
       display: inline-flex;
       border: 1px solid var(--border);
       border-radius: 5px;
       overflow: hidden;
     }
 
-    .target-toggle button {
+    .target-toggle button,
+    .format-toggle button {
       padding: 2px 8px;
       border: none;
       background: var(--surface);
@@ -657,11 +659,13 @@
       cursor: pointer;
     }
 
-    .target-toggle button + button {
+    .target-toggle button + button,
+    .format-toggle button + button {
       border-left: 1px solid var(--border);
     }
 
-    .target-toggle button[aria-pressed="true"] {
+    .target-toggle button[aria-pressed="true"],
+    .format-toggle button[aria-pressed="true"] {
       background: var(--accent);
       color: #fff;
     }
@@ -811,12 +815,17 @@
   </div>
 
   <div class="button-row">
-    <button class="copy-btn latex" id="copyLaTeXBtn">Copy LaTeX <span class="shortcut">&#8984;&#9166;</span></button>
-    <button class="copy-btn mathml" id="copyMathMLBtn">Copy MathML <span class="shortcut">&#8984;&#8679;&#9166;</span></button>
+    <button class="copy-btn latex" id="insertBtn" title="Paste into the app you came from">Insert <span class="shortcut">&#8984;&#9166;</span></button>
+    <button class="copy-btn mathml" id="copyBtn" title="Copy to the clipboard">Copy <span class="shortcut">&#8984;&#8679;&#9166;</span></button>
   </div>
 
   <div class="namespace-row">
-    <span class="namespace-label">MathML for:</span>
+    <span class="namespace-label">Output:</span>
+    <div class="format-toggle" role="group" aria-label="Output format">
+      <button type="button" data-format="latex" aria-pressed="true" title="Insert and Copy produce LaTeX">LaTeX</button>
+      <button type="button" data-format="mathml" aria-pressed="false" title="Insert and Copy produce MathML">MathML</button>
+    </div>
+    <span class="namespace-label namespace-gap">MathML for:</span>
     <div class="target-toggle" role="group" aria-label="MathML for">
       <button type="button" data-target="web" aria-pressed="true" title="Browsers, MathJax and XML: spaces as &lt;mspace&gt;">Web</button>
       <button type="button" data-target="word" aria-pressed="false" title="Microsoft Word: spaces as characters, upright function names, bars and stretchy braces Word keeps">Word</button>

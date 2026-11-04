@@ -5,6 +5,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   copyText(text) {
     return ipcRenderer.invoke('copy-text', text);
   },
+  // Pastes into the app the popover was opened from. Resolves with { ok } or
+  // { ok: false, reason, needsAccessibility }
+  insertText(text) {
+    return ipcRenderer.invoke('insert-text', text);
+  },
+  // 'latex' or 'mathml': what Insert and Copy produce, kept between launches
+  getOutputFormat() {
+    return ipcRenderer.invoke('get-output-format');
+  },
+  setOutputFormat(format) {
+    return ipcRenderer.invoke('set-output-format', format);
+  },
   resizeWindow(width, height, anchor) {
     ipcRenderer.send('resize-window', width, height, anchor);
   },
@@ -13,6 +25,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   onPopoverHidden(callback) {
     ipcRenderer.on('popover-hidden', () => callback());
+  },
+  // Text selected in the front app when ⌘⇧M was pressed: { kind: 'latex' | 'mathml', text }
+  onLoadSelection(callback) {
+    ipcRenderer.on('load-selection', (event, selection) => callback(selection));
   },
   // Resolves with { engines: [{ id, label, disabled?, title? }], selected, setup, recommended }
   imageEngines() {

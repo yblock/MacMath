@@ -2,7 +2,24 @@
 
 All notable changes to MacMath. Versions match the `version` in `package.json`.
 
-**Updating?** Get the latest code, then run `npm install` before `npm start` or `npm run build`. See [Updating MacMath](README.md#updating-macmath).
+**Updating?** Install the new release over the old copy (see [Install](README.md#install)). From source: pull, then run `npm install` before `npm start` or `npm run build` (see [DEVELOPING.md](DEVELOPING.md)).
+
+## Unreleased
+
+### Added
+
+- **Insert** (`Cmd+Enter`) pastes the expression into the text field you came from: the popover hides, the previous app becomes active, and a small native helper (`native/sendpaste.swift`) posts `Cmd+V`. Your previous clipboard text is put back afterwards. **Copy** moved to `Cmd+Shift+Enter`. ([#2](https://github.com/yblock/MacMath/issues/2))
+- An **Output** toggle, LaTeX or MathML, for both Insert and Copy, kept between launches, next to the MathML-for Web/Word toggle.
+- `Cmd+Shift+M` with text selected in the front app loads that text into the editor, replacing the previous expression (still in History). The selection is read through the Accessibility API, or by a simulated `Cmd+C` with the clipboard restored, using [node-get-selected-text](https://github.com/yetone/node-get-selected-text). Text starting with `<` is loaded as MathML, anything else as LaTeX. The menu bar icon never reads the selection. ([#2](https://github.com/yblock/MacMath/issues/2))
+- MacMath asks for the Accessibility permission once at first launch; Insert and loading a selection need it.
+- Tests: `npm test` runs unit tests (node:test) on the shortcut's decisions and Playwright tests that drive the Electron app. GitHub Actions runs them on pushes and pull requests.
+- Releases: a merge to `main` that changes the version builds, signs and publishes a `.dmg` on GitHub.
+- A download link at the top of the README; building, signing, testing and releasing moved to DEVELOPING.md.
+
+### Changed
+
+- Hiding the popover now also deactivates MacMath, so keyboard focus returns to the text field you were typing in. Before, MacMath stayed the active app with nothing on screen.
+- Every build is signed with a self-signed "MacMath Dev" certificate created once by `npm run setup:signing`; `npm run build` and `npm run build:dir` refuse to run without it. Ad-hoc signatures changed with every build, which made macOS forget the Accessibility permission on each rebuild. The `.dmg` is made with `hdiutil` from the signed bundle.
 
 ## 1.7.1 - 2026-10-22
 

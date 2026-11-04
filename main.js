@@ -1,12 +1,21 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut, screen, clipboard, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut, screen, clipboard, dialog, shell, systemPreferences } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const {
   IMAGE_EXTENSIONS, isImageFile, listEngines, setEngine, unavailableReason, recognizeImage, isRecognizing, clipboardImage,
   startOllama, downloadRecommendedModel, unloadOllamaModel
 } = require('./recognize');
+const { insertIntoPreviousApp } = require('./paste');
+const { getOutputFormat, setOutputFormat, wasAccessibilityPrompted, markAccessibilityPrompted } = require('./settings');
+const { decideShortcut } = require('./selection');
 
 const isMac = process.platform === 'darwin';
+
+// Tests (see test/) launch the app with their own profile so they never read or
+// write the real settings, history or image-engine choice. Must run before ready.
+if (process.env.MACMATH_USER_DATA) {
+  app.setPath('userData', process.env.MACMATH_USER_DATA);
+}
 const workspaceVisibilityOptions = {
   visibleOnFullScreen: true,
   skipTransformProcessType: true
@@ -23,6 +32,10 @@ const DEFAULT_HEIGHT = 380;
 
 let mainWindow = null;
 let tray = null;
+// Whether the popover is up. Under test (MACMATH_USER_DATA) no window is ever shown or
+// hidden, so the tests run headless; this flag is what they read.
+let popoverVisible = false;
+const headless = Boolean(process.env.MACMATH_USER_DATA);
 let resetWorkspaceVisibilityTimer = null;
 // While a file dialog is open the popover loses focus, but it shouldn't hide
 let dialogOpen = false;
@@ -43,11 +56,19 @@ function resetWorkspaceVisibility() {
 }
 
 function hideWindow() {
-  if (!mainWindow || mainWindow.isDestroyed()) {
+  if (!mainWindow || mainWindow.isDestroyed() || !popoverVisible) {
+    return;
+  }
+  popoverVisible = false;
+  if (headless) {
+    mainWindow.webContents.send('popover-hidden');
     return;
   }
 
   mainWindow.hide();
+  // Hiding the window alone leaves MacMath the active app, with nothing on screen to
+  // type into. Hiding the app hands focus back to the app the user came from.
+  if (isMac) app.hide();
   resetWorkspaceVisibility();
   // Reopen at the default size, so it is positioned under the tray icon correctly.
   // Set it here: a hidden renderer doesn't get animation frames to request it.
@@ -117,7 +138,7 @@ function createTray() {
   ]));
 
   tray.on('click', () => {
-    toggleWindow();
+    openFromTray();
   });
 
   tray.on('right-click', () => {
@@ -128,7 +149,7 @@ function createTray() {
   // (Dragging onto the popover itself doesn't work: it hides once another app has focus.)
   tray.on('drop-files', (event, files) => {
     const image = files.find(isImageFile);
-    if (!mainWindow.isVisible()) showWindow();
+    if (!popoverVisible) showWindow();
     const result = image
       ? startRecognition(image)
       : Promise.resolve({ error: 'Drop an image file (PNG, JPEG, HEIC, TIFF…).' });
@@ -137,14 +158,63 @@ function createTray() {
 }
 
 function toggleWindow() {
-  if (mainWindow.isVisible()) {
+  if (popoverVisible) {
     hideWindow();
   } else {
     showWindow();
   }
 }
 
+// The menu bar icon: just the popover, the selection is never read
+function openFromTray() {
+  toggleWindow();
+}
+
+// ⌘⇧M: when the popover is hidden, the text field the user is in still has focus, so
+// read its selection first, then open; a non-empty selection replaces the editor content
+// (the previous expression stays in History). When the popover is already showing, the
+// front app is MacMath itself, so there is nothing to read: just hide.
+function openFromShortcut() {
+  const decision = decideShortcut({ popoverVisible, getSelectedText: loadSelectedTextLibrary() });
+  if (decision.action === 'hide') {
+    hideWindow();
+    return;
+  }
+  showWindow();
+  if (decision.load) {
+    mainWindow.webContents.send('load-selection', decision.load);
+  }
+}
+
+// node-get-selected-text is a native module; load it when first needed so a missing
+// binary only disables this feature instead of the whole app
+let selectedTextLibrary;
+function loadSelectedTextLibrary() {
+  if (selectedTextLibrary === undefined) {
+    try {
+      selectedTextLibrary = require('node-get-selected-text').getSelectedText;
+    } catch (error) {
+      console.warn('MacMath: node-get-selected-text unavailable, selections will not load:', error.message);
+      selectedTextLibrary = () => '';
+    }
+  }
+  return selectedTextLibrary;
+}
+
+// Insert and loading a selection both need Accessibility. Ask once, at first launch,
+// with macOS's own prompt (it opens System Settings at the right place). Skipped in tests.
+function promptForAccessibilityOnce() {
+  if (!isMac || process.env.MACMATH_USER_DATA || wasAccessibilityPrompted()) return;
+  markAccessibilityPrompted();
+  systemPreferences.isTrustedAccessibilityClient(true);
+}
+
 function showWindow() {
+  popoverVisible = true;
+  if (headless) {
+    mainWindow.webContents.send('popover-shown', getWindowLimits());
+    return;
+  }
   const trayBounds = tray.getBounds();
   const windowBounds = mainWindow.getBounds();
 
@@ -162,6 +232,10 @@ function showWindow() {
 
   mainWindow.setPosition(x, y, false);
   mainWindow.webContents.send('popover-shown', getWindowLimits());
+  // hideWindow() hides the whole app so focus returns to the previous one. Showing the
+  // window alone then races with activation: it can come up unfocused, get a blur at
+  // once and hide again. Activating the app first (unhiding it too) makes it stick.
+  if (isMac) app.focus({ steal: true });
   mainWindow.show();
   mainWindow.moveTop();
   mainWindow.focus();
@@ -198,6 +272,10 @@ function buildTrayMenu() {
 }
 
 ipcMain.handle('copy-text', (event, text) => clipboard.writeText(String(text)));
+// Insert: paste into the app the user came from (see paste.js)
+ipcMain.handle('insert-text', (event, text) => insertIntoPreviousApp(String(text), hideWindow));
+ipcMain.handle('get-output-format', () => getOutputFormat());
+ipcMain.handle('set-output-format', (event, format) => setOutputFormat(String(format)));
 
 // --- Reading math from images (recognize.js) ---
 
@@ -286,8 +364,14 @@ app.whenReady().then(() => {
   createTray();
 
   const registered = globalShortcut.register('CommandOrControl+Shift+M', () => {
-    toggleWindow();
+    openFromShortcut();
   });
+  promptForAccessibilityOnce();
+
+  // Tests (test/*.spec.js) cannot press the global shortcut or click the tray icon
+  if (process.env.MACMATH_USER_DATA) {
+    global.macmathTest = { openFromShortcut, openFromTray, popoverVisible: () => popoverVisible };
+  }
   if (!registered) {
     console.warn('MacMath: Failed to register global shortcut Cmd+Shift+M — it may be in use by another app');
   }

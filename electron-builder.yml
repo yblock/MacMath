@@ -27,6 +27,9 @@ dmg:
 files:
   - main.js
   - recognize.js
+  - paste.js
+  - settings.js
+  - selection.js
   - package.json
   - "src/**/*"
   - "!src/image.png"
@@ -38,5 +41,6 @@ extraResources:
     filter:
       - mathocr
       - textboxes
+      - sendpaste
 extraMetadata:
   main: main.js

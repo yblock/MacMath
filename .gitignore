@@ -25,3 +25,7 @@ CLAUDE.md
 # Old dev subdirectory
 /mathlive-electron/
 AGENTS.md
+
+# Playwright
+test-results/
+playwright-report/
