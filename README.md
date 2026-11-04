@@ -24,7 +24,7 @@ A macOS menu bar utility for writing math and putting it into whatever you are w
 - **Launch at login** -- option in the tray menu
 - **Text mode** -- switch between math symbols and plain text input
 
-<img width="516" height="750" alt="Screenshot 2026-10-01 at 12 32 15 PM" src="https://github.com/user-attachments/assets/627b47bc-3746-4317-8149-8544926a629e" />
+<img width="516" alt="The MacMath editor showing a sum identity, the virtual keyboard, history, the LaTeX output and the Insert and Copy buttons" src="assets/screenshot.png" />
 
 ## Install
 
