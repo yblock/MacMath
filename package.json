@@ -14,7 +14,9 @@
     "build:ocr": "node native/build.js",
     "build": "node native/build.js && electron-builder --mac",
     "build:dir": "node native/build.js && electron-builder --mac --dir",
-    "test": "playwright test"
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node --test \"test/unit/**/*.test.js\"",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
@@ -23,7 +25,8 @@
   },
   "dependencies": {
     "mathlive": "^0.111.1",
-    "mhchemparser": "4.2.1"
+    "mhchemparser": "4.2.1",
+    "node-get-selected-text": "^0.1.9"
   },
   "overrides": {
     "global-agent": "^4.1.3",

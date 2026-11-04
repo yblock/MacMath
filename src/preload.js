@@ -26,6 +26,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onPopoverHidden(callback) {
     ipcRenderer.on('popover-hidden', () => callback());
   },
+  // Text selected in the front app when ⌘⇧M was pressed: { kind: 'latex' | 'mathml', text }
+  onLoadSelection(callback) {
+    ipcRenderer.on('load-selection', (event, selection) => callback(selection));
+  },
   // Resolves with { engines: [{ id, label, disabled?, title? }], selected, setup, recommended }
   imageEngines() {
     return ipcRenderer.invoke('image-engines');

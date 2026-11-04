@@ -18,13 +18,10 @@
 // The system clipboard is used for real (Electron's clipboard module); whatever text
 // was on it before the run is put back afterwards.
 
-const { test, expect, _electron: electron } = require('@playwright/test');
+const { test, expect } = require('@playwright/test');
 const { execFileSync } = require('child_process');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
+const { launchApp, setFormula, readClipboard, clearClipboard, pasteCalls } = require('./helpers');
 
-const ROOT = path.join(__dirname, '..');
 const FORMULA = '\\frac{1}{2}';
 
 let savedClipboard = '';
@@ -34,57 +31,6 @@ test.beforeAll(() => {
 test.afterAll(() => {
   execFileSync('pbcopy', { input: savedClipboard });
 });
-
-// Launches one app with its own profile and paste log. `profile` reuses a profile
-// from an earlier launch, to test that settings persist.
-async function launchApp(profile) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'macmath-test-'));
-  const userData = profile || path.join(tmp, 'userData');
-  const pasteLog = path.join(tmp, 'paste.jsonl');
-
-  const app = await electron.launch({
-    executablePath: require('electron'),
-    args: [ROOT],
-    cwd: ROOT,
-    env: { ...process.env, MACMATH_USER_DATA: userData, MACMATH_PASTE_LOG: pasteLog }
-  });
-
-  // The popover starts hidden; show it so the renderer has keyboard focus.
-  const page = await app.firstWindow();
-  await app.evaluate(({ BrowserWindow }) => {
-    const [win] = BrowserWindow.getAllWindows();
-    win.show();
-    win.focus();
-  });
-  await page.waitForFunction(() => {
-    const mf = document.getElementById('mathfield');
-    return Boolean(mf && customElements.get('math-field') && typeof mf.setValue === 'function');
-  });
-
-  return { app, page, pasteLog, userData };
-}
-
-async function setFormula(page, latex) {
-  await page.evaluate((value) => {
-    const mf = document.getElementById('mathfield');
-    mf.setValue(value);
-    mf.focus();
-  }, latex);
-  await expect.poll(() => page.evaluate(() => document.getElementById('mathfield').getValue('latex'))).toBe(latex);
-}
-
-function readClipboard(app) {
-  return app.evaluate(({ clipboard }) => clipboard.readText());
-}
-
-function pasteCalls(pasteLog) {
-  if (!fs.existsSync(pasteLog)) return [];
-  return fs.readFileSync(pasteLog, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
-}
-
-async function clearClipboard(app) {
-  await app.evaluate(({ clipboard }) => clipboard.writeText(''));
-}
 
 // --- Harness -------------------------------------------------------------------
 
@@ -177,7 +123,7 @@ test('the output format survives a relaunch', async () => {
   await first.page.evaluate(() => window.electronAPI.setOutputFormat('mathml'));
   await first.app.close();
 
-  const second = await launchApp(first.userData);
+  const second = await launchApp({ profile: first.userData });
   try {
     expect(await second.page.evaluate(() => window.electronAPI.getOutputFormat())).toBe('mathml');
   } finally {

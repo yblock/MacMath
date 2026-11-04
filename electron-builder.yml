@@ -29,6 +29,7 @@ files:
   - recognize.js
   - paste.js
   - settings.js
+  - selection.js
   - package.json
   - "src/**/*"
   - "!src/image.png"

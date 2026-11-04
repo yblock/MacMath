@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut, screen, clipboard, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, globalShortcut, screen, clipboard, dialog, shell, systemPreferences } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const {
@@ -6,7 +6,8 @@ const {
   startOllama, downloadRecommendedModel, unloadOllamaModel
 } = require('./recognize');
 const { insertIntoPreviousApp } = require('./paste');
-const { getOutputFormat, setOutputFormat } = require('./settings');
+const { getOutputFormat, setOutputFormat, wasAccessibilityPrompted, markAccessibilityPrompted } = require('./settings');
+const { decideShortcut } = require('./selection');
 
 const isMac = process.platform === 'darwin';
 
@@ -128,7 +129,7 @@ function createTray() {
   ]));
 
   tray.on('click', () => {
-    toggleWindow();
+    openFromTray();
   });
 
   tray.on('right-click', () => {
@@ -153,6 +154,50 @@ function toggleWindow() {
   } else {
     showWindow();
   }
+}
+
+// The menu bar icon: just the popover, the selection is never read
+function openFromTray() {
+  toggleWindow();
+}
+
+// ⌘⇧M: when the popover is hidden, the text field the user is in still has focus, so
+// read its selection first, then open; a non-empty selection replaces the editor content
+// (the previous expression stays in History). When the popover is already showing, the
+// front app is MacMath itself, so there is nothing to read: just hide.
+function openFromShortcut() {
+  const decision = decideShortcut({ popoverVisible: mainWindow.isVisible(), getSelectedText: loadSelectedTextLibrary() });
+  if (decision.action === 'hide') {
+    hideWindow();
+    return;
+  }
+  showWindow();
+  if (decision.load) {
+    mainWindow.webContents.send('load-selection', decision.load);
+  }
+}
+
+// node-get-selected-text is a native module; load it when first needed so a missing
+// binary only disables this feature instead of the whole app
+let selectedTextLibrary;
+function loadSelectedTextLibrary() {
+  if (selectedTextLibrary === undefined) {
+    try {
+      selectedTextLibrary = require('node-get-selected-text').getSelectedText;
+    } catch (error) {
+      console.warn('MacMath: node-get-selected-text unavailable, selections will not load:', error.message);
+      selectedTextLibrary = () => '';
+    }
+  }
+  return selectedTextLibrary;
+}
+
+// Insert and loading a selection both need Accessibility. Ask once, at first launch,
+// with macOS's own prompt (it opens System Settings at the right place). Skipped in tests.
+function promptForAccessibilityOnce() {
+  if (!isMac || process.env.MACMATH_USER_DATA || wasAccessibilityPrompted()) return;
+  markAccessibilityPrompted();
+  systemPreferences.isTrustedAccessibilityClient(true);
 }
 
 function showWindow() {
@@ -301,8 +346,14 @@ app.whenReady().then(() => {
   createTray();
 
   const registered = globalShortcut.register('CommandOrControl+Shift+M', () => {
-    toggleWindow();
+    openFromShortcut();
   });
+  promptForAccessibilityOnce();
+
+  // Tests (test/*.spec.js) cannot press the global shortcut or click the tray icon
+  if (process.env.MACMATH_USER_DATA) {
+    global.macmathTest = { openFromShortcut, openFromTray };
+  }
   if (!registered) {
     console.warn('MacMath: Failed to register global shortcut Cmd+Shift+M — it may be in use by another app');
   }

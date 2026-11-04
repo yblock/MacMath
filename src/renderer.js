@@ -1580,6 +1580,27 @@ window.addEventListener('DOMContentLoaded', () => {
     finishImport();
   });
 
+  // --- Selection loaded by ⌘⇧M ---
+
+  // Same handling as the Import box, without the box: MathML is converted (and its
+  // namespace prefix adopted), anything else is LaTeX. Replaces the editor content.
+  window.electronAPI?.onLoadSelection?.((selection) => {
+    if (!selection || !selection.text) return;
+    if (selection.kind === 'mathml') {
+      const detectedPrefix = detectNsPrefix(selection.text);
+      if (detectedPrefix) {
+        nsPrefix.value = detectedPrefix;
+        nsExample.textContent = `<${detectedPrefix}:math>`;
+      }
+      const latex = mathmlToLatex(selection.text);
+      if (latex === null) return;
+      setEditorValue(latex);
+    } else {
+      setEditorValue(selection.text);
+    }
+    mathField.focus();
+  });
+
   let importHintTimer = null;
 
   function setImportHint(text, state = '') {

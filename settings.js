@@ -37,4 +37,13 @@ function setOutputFormat(format) {
   return format;
 }
 
-module.exports = { getOutputFormat, setOutputFormat, OUTPUT_FORMATS };
+// Whether the first-launch Accessibility prompt has been shown
+function wasAccessibilityPrompted() {
+  return readSettings().accessibilityPrompted === true;
+}
+
+function markAccessibilityPrompted() {
+  writeSetting('accessibilityPrompted', true);
+}
+
+module.exports = { getOutputFormat, setOutputFormat, OUTPUT_FORMATS, wasAccessibilityPrompted, markAccessibilityPrompted };
