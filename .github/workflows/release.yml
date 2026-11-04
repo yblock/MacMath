@@ -48,8 +48,6 @@ jobs:
     if: github.event_name != 'push' || needs.version.outputs.release == 'true'
     runs-on: macos-latest
     timeout-minutes: 30
-    env:
-      KEYCHAIN: ${{ runner.temp }}/macmath-build.keychain-db
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +60,7 @@ jobs:
 
       - name: Signing identity
         env:
+          KEYCHAIN: ${{ runner.temp }}/macmath-build.keychain-db
           P12_BASE64: ${{ secrets.MACMATH_SIGNING_P12 }}
           P12_PASSWORD: ${{ secrets.MACMATH_SIGNING_PASSWORD }}
         run: |
@@ -88,6 +87,8 @@ jobs:
 
       - name: Remove the build keychain
         if: always()
+        env:
+          KEYCHAIN: ${{ runner.temp }}/macmath-build.keychain-db
         run: security delete-keychain "$KEYCHAIN" || true
 
       - name: Keep the .dmg as a workflow artifact
