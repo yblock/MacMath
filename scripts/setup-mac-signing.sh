@@ -52,11 +52,11 @@ P12_PASSWORD="$($OPENSSL rand -hex 16)"
 
 "$OPENSSL" pkcs12 -export \
   -inkey "$WORK/key.pem" -in "$WORK/cert.pem" \
-  -out "$WORK/identity.p12" -name "$NAME" \
+  -out "$WORK/$NAME.p12" -name "$NAME" \
   -passout "pass:$P12_PASSWORD" 2>/dev/null
 
 # -T lets codesign use the private key
-security import "$WORK/identity.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign >/dev/null
+security import "$WORK/$NAME.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign >/dev/null
 
 # Without this, macOS shows "codesign wants to access key ..." on every build. It needs
 # the login keychain password, which is only asked for here and never stored.
