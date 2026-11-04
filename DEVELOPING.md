@@ -139,4 +139,6 @@ Releases are signed with the same "MacMath Dev" identity every time, so that use
 
 Keep the exported `.p12` somewhere safe. Replacing it with a different certificate makes the next release a new app to macOS, and every user has to grant the Accessibility permission again.
 
+Released builds do not include the Apple Intelligence helper (`mathocr`): it needs the macOS 27 SDK, and GitHub's macOS runners do not have it yet. Reading images from a released build therefore uses Ollama. Builds made on a Mac with the macOS 27 SDK include it.
+
 Releases are not notarized, which needs the Apple Developer Program: the first launch of a downloaded copy is refused until the app is allowed under System Settings → Privacy & Security. The release note the workflow writes tells users so.

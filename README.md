@@ -7,7 +7,7 @@ A macOS menu bar utility for writing math and putting it into whatever you are w
 </p>
 
 <p align="center">
-  <a href="https://github.com/yblock/MacMath/releases/latest"><b>Download the latest release</b></a><br />
+  <a href="https://github.com/yblock/MacMath/releases/latest"><b>Download the latest release</b></a> · <a href="CHANGELOG.md">Changelog</a><br />
   <sub>macOS 13 or later, Apple silicon · free and open source</sub>
 </p>
 
@@ -42,7 +42,7 @@ MacMath runs on macOS 13 (Ventura) or later.
 
 Its icon appears in the menu bar. Right-click it for **Launch at Login** and **Quit MacMath**.
 
-To update, install the new `.dmg` the same way and replace the old copy; the permission stays. See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
+To update, install the new `.dmg` the same way and replace the old copy; the permission stays.
 
 ## Usage
 
