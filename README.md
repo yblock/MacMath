@@ -10,14 +10,15 @@ A macOS menu bar utility for writing math and copying it as LaTeX or MathML.
 
 - **Visual math editor** with MathLive -- type or use the virtual keyboard
 - **Resizable editor** -- drag a bottom corner to make the editor wider and taller for large equations, up to the edges of your screen
-- **Copy as LaTeX or MathML** with one click or keyboard shortcut
+- **Insert into the app you came from** -- `Cmd+Enter` pastes the expression straight into the text field you were typing in, as LaTeX or MathML; `Cmd+Shift+Enter` copies it instead
+- **Edit a formula from any app** -- select it, press `Cmd+Shift+M`, and it opens in the editor; Insert then replaces the selection
 - **Import** LaTeX or MathML to edit visually -- auto-detects format and namespace prefixes. Equations copied from Word paste in as math
 - **Math from images** -- paste a screenshot, choose an image, or drop one on the menu bar icon, and a model on your Mac turns it into editable math: Apple Intelligence (macOS 27) or any vision model you've installed with [Ollama](https://ollama.com)
 - **Chemistry** -- a chemistry keyboard (isotopes, charges, reaction and equilibrium arrows, states, elements) and mhchem's `\ce{}` and `\pu{}`, all exported to MathML that Word displays without empty boxes
 - **MathML for the web or for Word** -- standard MathML for browsers and MathJax, or MathML shaped the way Word's equation import keeps it
 - **MathML namespace prefix** -- set a custom prefix like `m:` or `mml:` for output
 - **Expression history** -- recent expressions saved for quick re-use
-- **Global shortcut** -- `Cmd+Shift+M` summons MacMath from any app
+- **Global shortcut** -- `Cmd+Shift+M` summons MacMath from any app, loading whatever text is selected there
 - **Bold, upright and underline** -- `Cmd+B`, `Cmd+I` and `Cmd+U` toggle formatting, exported to both LaTeX and MathML
 - **Light and dark mode** -- follows system preference, with a manual toggle
 - **Launch at login** -- option in the tray menu
@@ -166,12 +167,27 @@ See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 
 ## Usage
 
-1. Click the menu bar icon (or press `Cmd+Shift+M`) to open the editor
+1. While typing in any app, press `Cmd+Shift+M` (or click the menu bar icon) to open the editor
 2. Type a math expression -- it renders live
-3. Press `Cmd+Enter` to copy LaTeX, or `Cmd+Shift+Enter` for MathML
-4. Paste into your document
+3. Press `Cmd+Enter` to insert it into the text field you came from, or `Cmd+Shift+Enter` to copy it
 
 Right-click the menu bar icon for **Launch at Login** and **Quit MacMath**.
+
+### Insert, Copy and the output format
+
+**Insert** (`Cmd+Enter`) hides the editor and pastes the expression into the app that was in front before you opened MacMath, by way of the clipboard; your previous clipboard text is put back afterwards. **Copy** (`Cmd+Shift+Enter`) only puts it on the clipboard. Both produce what the **Output** toggle under the buttons says, LaTeX or MathML; MacMath remembers the choice.
+
+If Insert reports "Copied" instead of "Inserted", MacMath could not send the paste keystroke; see [Permissions](#permissions). The expression is on the clipboard either way, so `Cmd+V` finishes the job.
+
+### Editing a formula from another app
+
+Select the formula in whatever app you are in, then press `Cmd+Shift+M`. The selection replaces what was in the editor (the previous expression stays in **History**). Text starting with `<` is read as MathML, anything else as LaTeX, so a selection with `$` around it keeps its dollar signs. After editing, Insert pastes over the still-selected text. Opening MacMath from the menu bar icon never reads the selection, and with nothing selected the shortcut opens the editor as always.
+
+MacMath reads the selection through the macOS Accessibility API and, in apps that do not expose their selection that way, by sending `Cmd+C` and restoring the clipboard afterwards. Apps that draw their own text, such as Google Docs, may give nothing back.
+
+### Permissions
+
+Insert and loading a selection both need the **Accessibility** permission, which MacMath asks for once at first launch. If you declined, allow MacMath under System Settings → Privacy & Security → Accessibility. macOS ties the permission to the app's signature: builds made with `npm run build` keep it, but if MacMath was ever granted it as an ad-hoc build, remove it from the list and add it again once.
 
 To import an existing expression, click **Import** and paste LaTeX or MathML. The format is detected automatically, including namespace-prefixed MathML like `<m:math>`.
 
@@ -216,9 +232,9 @@ Need more room? Drag either bottom corner of the editor to resize it in both dir
 
 | Shortcut | Action |
 |---|---|
-| `Cmd+Shift+M` | Toggle popover (works globally) |
-| `Cmd+Enter` | Copy LaTeX |
-| `Cmd+Shift+Enter` | Copy MathML |
+| `Cmd+Shift+M` | Open MacMath from any app, loading the text selected there; hide it again |
+| `Cmd+Enter` | Insert into the app you came from (LaTeX or MathML, per the Output toggle) |
+| `Cmd+Shift+Enter` | Copy to the clipboard |
 | `Cmd+B` | Toggle bold |
 | `Cmd+I` | Toggle upright letters in math (`\mathrm`, such as the label in F<sub>v</sub>); italic in text |
 | `Cmd+U` | Toggle underline on the selection |
@@ -234,6 +250,7 @@ npm start
 npm run build
 npm run build:dir
 npm run build:ocr
+npm test
 ```
 
 - `npm install` installs the required packages
@@ -241,9 +258,14 @@ npm run build:ocr
 - `npm run setup:signing` creates the signing identity, once per Mac (see [Signing](#signing))
 - `npm run build` creates the signed `.app` bundle and a local `.dmg`
 - `npm run build:dir` creates the signed `.app` bundle without the `.dmg`
-- `npm run build:ocr` builds the helpers for reading math from images (`npm install` and the build commands run it too)
+- `npm run build:ocr` builds the native helpers: reading math from images and the `sendpaste` helper behind Insert (`npm install` and the build commands run it too)
+- `npm test` runs the unit tests (`npm run test:unit`, plain Node) and the Playwright tests that drive the Electron app (`npm run test:e2e`)
 
 ## Troubleshooting
+
+### Insert only copies, or `Cmd+Shift+M` ignores the selected text
+
+Both need the Accessibility permission; see [Permissions](#permissions). If MacMath is listed there and switched on but it still does not work, the permission belongs to an older build: remove MacMath from the list, add it again, then quit and reopen it.
 
 ### Reading an image says Ollama isn't running, or takes very long
 
@@ -265,6 +287,10 @@ npm install
 iCloud then leaves `node_modules` and `dist` on your Mac only. The setting stays as long as you keep using `npm install`; if you ever delete `node_modules`, run these steps again.
 
 You can also stop iCloud from syncing the whole project instead. Either move the folder out of Desktop and Documents, or rename it so it ends in `.nosync` (for example `MacMath.nosync`).
+
+## Releasing
+
+GitHub Actions makes a release when a merge to `main` changes the `version` in `package.json`: the Release workflow builds and signs the app, tags the commit `v<version>` and attaches the `.dmg` to a GitHub release. Merges that leave the version alone only run the tests. "Run workflow" on the Release workflow builds any branch and keeps the `.dmg` as a workflow artifact. Releases are not notarized: the first launch is refused until the app is allowed under System Settings → Privacy & Security. How releases are signed is described at the top of `.github/workflows/release.yml`.
 
 ## License
 

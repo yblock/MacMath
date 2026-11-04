@@ -1,0 +1,36 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # macOS: the Playwright tests launch the real Electron app, and the native helpers
+    # are compiled with Apple's toolchain during `npm ci`
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: End-to-end tests (Playwright, Electron)
+        run: npm run test:e2e
+
+      - name: Keep Playwright traces of failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: test-results/
+          if-no-files-found: ignore
