@@ -1,6 +1,7 @@
 // Builds the native helpers in native/bin. Runs after `npm install` and before `npm run build`.
 //  - textboxes: finds words in an image (Vision) so italic words can be told from upright ones.
 //    Needs Xcode or the Command Line Tools.
+//  - sendpaste: posts ⌘V to the front app, for Insert (paste.js). Needs the Command Line Tools.
 //  - mathocr: reads math from images with Apple's on-device model. Needs Apple silicon and the macOS 27 SDK.
 // Without them the app still works, with less: so this never fails the install.
 
@@ -42,6 +43,7 @@ function build() {
   }
 
   swiftc('textboxes', []);
+  swiftc('sendpaste', []);
 
   const helper = 'The Apple Intelligence image helper';
   // Apple Intelligence only runs on Apple silicon

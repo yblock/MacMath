@@ -41,5 +41,6 @@ extraResources:
     filter:
       - mathocr
       - textboxes
+      - sendpaste
 extraMetadata:
   main: main.js

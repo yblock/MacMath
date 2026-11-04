@@ -6,6 +6,11 @@ A macOS menu bar utility for writing math and putting it into whatever you are w
   <img src="src/image.png" alt="MacMath" width="128" />
 </p>
 
+<p align="center">
+  <a href="https://github.com/yblock/MacMath/releases/latest"><b>Download the latest release</b></a><br />
+  <sub>macOS 13 or later, Apple silicon · free and open source</sub>
+</p>
+
 ## Features
 
 - **Visual math editor** with MathLive -- type or use the virtual keyboard
